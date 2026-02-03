@@ -8,3 +8,7 @@ The repository offers modular resuable github actions—each focused on a specif
 *   **ABI Compatibility Checks:** Validate binary‑level stability using tools like *libabigail*, identifying layout changes, symbol removals, or interface mismatches.
 
 These actions can be integrated into any CI workflow to automatically enforce API/ABI backward compatibility across branches and releases.
+
+## License
+
+armor-checkers is licensed under the [BSD-3-Clause-Clear License](https://spdx.org/licenses/BSD-3-Clause-Clear.html). See [LICENSE.txt](LICENSE.txt) for the full license text.
