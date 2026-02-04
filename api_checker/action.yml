@@ -114,9 +114,9 @@ runs:
           "https://github.com/mikefarah/yq/releases/download/v4.44.3/${yq_asset}"
         sudo chmod +x /usr/local/bin/yq
 
-        echo "Installed yq:"
+        echo "Installed yq: $(/usr/local/bin/yq --version 2>&1)"
 
-        if ! /usr/local/bin/yq --version; then
+        if ! /usr/local/bin/yq --version >/dev/null 2>&1; then
           echo "::warning::yq installed but version check failed." >> "$GITHUB_STEP_SUMMARY"
           exit 0
         else
@@ -144,7 +144,7 @@ runs:
         TRACE_PATTERNS: "1"
       run: |
         set -euo pipefail
-        bash "${{ github.action_path }}/action_script/parse_headers.sh" \
+        bash "${{ github.action_path }}/../action_scripts/parse_headers.sh" \
           "$GITHUB_WORKSPACE/head/public_headers/config.yml" \
           "${{ inputs.branch-name }}" \
           "$GITHUB_WORKSPACE/head" \
@@ -243,8 +243,8 @@ runs:
           -w /work \
           armor_tool:latest bash -c '
             set -euo pipefail
-            chmod +x "$ACTION_DIR/action_script/run_armor.sh"
-            "$ACTION_DIR/action_script/run_armor.sh" "$GITHUB_WORKSPACE/base" "$GITHUB_WORKSPACE/head" "$GITHUB_WORKSPACE/updated_headers_PR.txt" "$ARMOR_BINS_PATH"
+            chmod +x "$ACTION_DIR/../action_scripts/run_armor.sh"
+            "$ACTION_DIR/../action_scripts/run_armor.sh" "$GITHUB_WORKSPACE/base" "$GITHUB_WORKSPACE/head" "$GITHUB_WORKSPACE/updated_headers_PR.txt" "$ARMOR_BINS_PATH"
           '
 
         # Expose out-root path

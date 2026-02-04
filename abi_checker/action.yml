@@ -101,9 +101,14 @@ runs:
           "https://github.com/mikefarah/yq/releases/download/v4.44.3/${yq_asset}"
         sudo chmod +x /usr/local/bin/yq
 
-        echo "Installed yq:"
-        /usr/local/bin/yq --version
-        echo "yq-installed=true" >> "$GITHUB_OUTPUT"
+        echo "Installed yq: $(/usr/local/bin/yq --version 2>&1)"
+
+        if ! /usr/local/bin/yq --version >/dev/null 2>&1; then
+          echo "::warning::yq installed but version check failed." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        else
+          echo "yq-installed=true" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Verify build script exists
       id: verify-build-script
