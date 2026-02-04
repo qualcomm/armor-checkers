@@ -167,7 +167,7 @@ runs:
           echo "No intersection found."
           : > "$GITHUB_WORKSPACE/updated_headers_PR.txt"
           echo "has-intersection=false" >> "$GITHUB_OUTPUT"
-          echo "No intersection with changed headers in PR and public headers." >> "$GITHUB_STEP_SUMMARY"
+          echo "No public header changes detected. Skipping API compatibility checks" >> "$GITHUB_STEP_SUMMARY"
         fi
 
     - name: Build docker image for armor bins
@@ -280,7 +280,7 @@ runs:
       run: |
         set -e
         FOLDER="${{ steps.run-armor.outputs.out-root }}"
-        BUCKET="s3://qli-prd-armor-gh-artifacts"
+        BUCKET="s3://qli-stg-armor-gh-artifacts"
         YYYY="$(date -u +'%Y')"
         MM="$(date -u +'%m')"
         DD="$(date -u +'%d')"

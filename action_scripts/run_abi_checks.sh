@@ -13,7 +13,7 @@
 set -euo pipefail
 
 manifest="${1:-abi_manifest.tsv}"
-reports_dir="${2:-abidiff_reports}"
+reports_dir="${2:-abichecker_reports}"
 policy="${3:-incompat-only}"
 stage_root="${4:-${ABI_STAGE_DIR:-${RUNNER_TEMP:-/tmp}/abi-stage}}"
 mkdir -p "$stage_root"
@@ -295,25 +295,25 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   elif (( has_error )); then
     errs=$((errs+1)); note="Internal error"; (( has_usage )) && note="Usage error"
     echo "::error::${note} (rc=${rc}) for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌ Error | ${note}; see \`$report_display\` |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌ Error | ${note}; check artifact\`$report_display\` |" >> "$SUMMARY"
     collect_binary "$name" "error"
   
   elif (( has_incompat )); then
     changed_incompat=$((changed_incompat+1))
     echo "::error::ABI incompatible changes in ${name} (rc=${rc})" >>"$out_file"
-    echo "| \`${name}\` | ❌ Incompatible | see \`$report_display\` |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌ Incompatible | check artifact\`$report_display\` |" >> "$SUMMARY"
     collect_binary "$name" "incompatible"
   
   elif (( has_change )); then
     changed_review=$((changed_review+1))
     warn_to_out "ABI changes (review needed) in ${name} (rc=${rc})"
-    echo "| \`${name}\` | ⚠️ ABI changed (review required) | see \`$report_display\` |" >> "$SUMMARY"
+    echo "| \`${name}\` | ⚠️ ABI changed (review required) | check artifact\`$report_display\` |" >> "$SUMMARY"
     collect_binary "$name" "ABI changed (review required)"
 
   else
     errs=$((errs+1))
     echo "::error::Unknown exit code ${rc} for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌ Error | Unknown rc=${rc}; see \`$report_display\` |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌ Error | Unknown rc=${rc}; check artifact\`$report_display\` |" >> "$SUMMARY"
     collect_binary "$name" "error"
   fi
 done < "$manifest"
