@@ -38,7 +38,7 @@ SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
   echo "## ABI Compatibility Report"
   echo ""
   echo "| Binary | Result | Notes |"
-  echo "|-------:|:-------|:------|"
+  echo "|:-------|:-------|:------|"
 } >> "$SUMMARY"
 
 total=0; ok=0; changed_review=0; changed_incompat=0; errs=0
