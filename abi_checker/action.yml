@@ -264,7 +264,7 @@ runs:
         WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         ARTIFACTS_URL="${WORKFLOW_URL}#artifacts"
 
-        cat > "$REPORTS_DIR/metadata.json" <<EOF
+        cat > "$REPORTS_DIR/abi_metadata.json" <<EOF
         {
           "project_url": "${PROJECT_URL}",
           "branch": "${BRANCH}",
@@ -277,8 +277,8 @@ runs:
           "binaries": []
         }
         EOF
-        echo "metadata_created_path=$REPORTS_DIR/metadata.json" >> "$GITHUB_OUTPUT"
-        echo "Initialized metadata.json at $REPORTS_DIR/metadata.json"
+        echo "metadata_created_path=$REPORTS_DIR/abi_metadata.json" >> "$GITHUB_OUTPUT"
+        echo "Initialized abi_metadata.json at $REPORTS_DIR/abi_metadata.json"
 
     - name: Run ABI checks
       if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
@@ -305,8 +305,8 @@ runs:
       run: |
         set -e
         FOLDER="$GITHUB_WORKSPACE/abichecker_reports"
-        META="$FOLDER/metadata.json"
-        [[ -s "$META" ]] || { echo "::error :: metadata.json not found or empty"; exit 1; }
+        META="$FOLDER/abi_metadata.json"
+        [[ -s "$META" ]] || { echo "::error :: abi_metadata.json not found or empty"; exit 1; }
         BUCKET="s3://qli-stg-armor-gh-artifacts"
         YYYY="$(date -u +'%Y')"; MM="$(date -u +'%m')"; DD="$(date -u +'%d')"; HH="$(date -u +'%H')"
         HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
@@ -314,7 +314,7 @@ runs:
         echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
         set +e
         ERR_FILE="$(mktemp)"
-        aws s3 cp "${META}" "${BUCKET}/${PREFIX}/metadata.json" \
+        aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
           --content-type "application/json" \
           --only-show-errors \
           2> "${ERR_FILE}"
