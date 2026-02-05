@@ -55,7 +55,7 @@ repo_root_from() {
   esac
 }
 
-meta_json="${reports_dir}/metadata.json"
+meta_json="${reports_dir}/abi_metadata.json"
 
 # Collect rows as: "binary <TAB> compatibility"
 declare -a META_ROWS=()
