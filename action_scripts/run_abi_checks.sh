@@ -295,25 +295,25 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   elif (( has_error )); then
     errs=$((errs+1)); note="Internal error"; (( has_usage )) && note="Usage error"
     echo "::error::${note} (rc=${rc}) for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌ Error | ${note}; check artifact -> [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌ Error | ${note}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   
   elif (( has_incompat )); then
     changed_incompat=$((changed_incompat+1))
     echo "::error::ABI incompatible changes in ${name} (rc=${rc})" >>"$out_file"
-    echo "| \`${name}\` | ❌ Incompatible | check artifact -> [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌ Incompatible | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "incompatible"
   
   elif (( has_change )); then
     changed_review=$((changed_review+1))
     warn_to_out "ABI changes (review needed) in ${name} (rc=${rc})"
-    echo "| \`${name}\` | ⚠️ ABI changed (review required) | check artifact -> [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ⚠️ ABI changed (review required) | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "ABI changed (review required)"
 
   else
     errs=$((errs+1))
     echo "::error::Unknown exit code ${rc} for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌ Error | Unknown rc=${rc}; check artifact -> [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌ Error | Unknown rc=${rc}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   fi
 done < "$manifest"
