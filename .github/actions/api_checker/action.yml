@@ -152,7 +152,7 @@ runs:
         echo "exists=true" >> "$GITHUB_OUTPUT"
 
     - name: Parse YAML for headers (dirs/globs allowed) and expand to file list
-      if: ${{ steps.install-yq.outputs.yq-installed == 'true' && steps.config_exists.exists == 'true' }}
+      if: ${{ steps.install-yq.outputs.yq-installed == 'true' && steps.config_exists.outputs.exists == 'true' }}
       id: parse-yaml
       shell: bash
       env:
