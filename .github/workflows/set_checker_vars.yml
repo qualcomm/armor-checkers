@@ -66,13 +66,11 @@ jobs:
             fromJSON(inputs.armor-checker-options)['build-script'] != null &&
             fromJSON(inputs.armor-checker-options)['build-script'] || 'ci/build.sh' }}" >> "$GITHUB_OUTPUT"
 
-          echo "runner_json=${{ inputs.armor-checker-options != '' &&
-            fromJSON(inputs.armor-checker-options)['runs-on'] != null &&
-            toJSON(fromJSON(inputs.armor-checker-options)['runs-on']) || '\"ubuntu-latest\"' }}"
-
           {
             echo "runner_json<<EOF"
-            echo "$runner_json"
+            echo '${{ inputs.armor-checker-options != '' &&
+              fromJSON(inputs.armor-checker-options)['runs-on'] != null &&
+              toJSON(fromJSON(inputs.armor-checker-options)['runs-on']) || '"ubuntu-latest"' }}'
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
