@@ -72,7 +72,7 @@ jobs:
 
           {
             echo "runner_json<<EOF"
-            echo "$runner_val"
+            echo "$runner_json"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
