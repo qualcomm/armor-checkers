@@ -68,7 +68,13 @@ jobs:
 
           echo "runner_json=${{ inputs.armor-checker-options != '' &&
             fromJSON(inputs.armor-checker-options)['runs-on'] != null &&
-            toJSON(fromJSON(inputs.armor-checker-options)['runs-on']) || '\"ubuntu-latest\"' }}" >> "$GITHUB_OUTPUT"
+            toJSON(fromJSON(inputs.armor-checker-options)['runs-on']) || '\"ubuntu-latest\"' }}"
+
+          {
+            echo "runner_json<<EOF"
+            echo "$runner_val"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
             echo "head_sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
