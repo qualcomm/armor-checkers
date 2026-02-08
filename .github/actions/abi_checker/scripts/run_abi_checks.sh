@@ -38,7 +38,7 @@ SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
   echo "## ABI Compatibility Report"
   echo ""
   echo "| Binary | Result | Notes |"
-  echo "|-------:|:-------|:------|"
+  echo "|:-------|:-------|:------|"
 } >> "$SUMMARY"
 
 total=0; ok=0; changed_review=0; changed_incompat=0; errs=0
@@ -55,7 +55,7 @@ repo_root_from() {
   esac
 }
 
-meta_json="${reports_dir}/metadata.json"
+meta_json="${reports_dir}/abi_metadata.json"
 
 # Collect rows as: "binary <TAB> compatibility"
 declare -a META_ROWS=()
@@ -289,25 +289,25 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   if (( rc == 0 )); then
     echo "No ABI differences detected." >>"$out_file"  
     ok=$((ok+1))
-    echo "| \`${name}\` | ✅ Compatible | No ABI differences |" >> "$SUMMARY"
+    echo "| \`${name}\` | ✅&nbsp;Compatible | No ABI differences |" >> "$SUMMARY"
     collect_binary "$name" "compatible"
   
   elif (( has_error )); then
     errs=$((errs+1)); note="Internal error"; (( has_usage )) && note="Usage error"
     echo "::error::${note} (rc=${rc}) for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌ Error | ${note}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Error | ${note}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   
   elif (( has_incompat )); then
     changed_incompat=$((changed_incompat+1))
     echo "::error::ABI incompatible changes in ${name} (rc=${rc})" >>"$out_file"
-    echo "| \`${name}\` | ❌ Incompatible | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Incompatible | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "incompatible"
   
   elif (( has_change )); then
     changed_review=$((changed_review+1))
     warn_to_out "ABI changes (review needed) in ${name} (rc=${rc})"
-    echo "| \`${name}\` | ⚠️ ABI changed (review required) | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ⚠️&nbsp;ABI changed (review required) | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "ABI changed (review required)"
 
   else
