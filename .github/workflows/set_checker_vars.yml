@@ -1,0 +1,118 @@
+name: Setup ARMOR Checker Parameters
+description: Setup parameters (event context, SHAs, branch, repo, build script, runner)
+on:
+  workflow_call:
+    inputs:
+      base-sha:
+        required: false
+        type: string
+        default: ''
+      head-sha:
+        required: false
+        type: string
+        default: ''
+      branch-name:
+        required: false
+        type: string
+        default: ''
+      armor-checker-options:
+        required: false
+        type: string
+        default: ''
+
+    outputs:
+      event_name:
+        value: ${{ jobs.setup.outputs.event_name }}
+      head_sha:
+        value: ${{ jobs.setup.outputs.head_sha }}
+      base_sha:
+        value: ${{ jobs.setup.outputs.base_sha }}
+      branch_name:
+        value: ${{ jobs.setup.outputs.branch_name }}
+      ref:
+        value: ${{ jobs.setup.outputs.ref }}
+      repo:
+        value: ${{ jobs.setup.outputs.repo }}
+      build_script:
+        value: ${{ jobs.setup.outputs.build_script }}
+      runner_json:
+        value: ${{ jobs.setup.outputs.runner_json }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      event_name: ${{ steps.vars.outputs.event_name }}
+      ref: ${{ steps.vars.outputs.ref }}
+      repo: ${{ steps.vars.outputs.repo }}
+      build_script: ${{ steps.vars.outputs.build_script }}
+      runner_json: ${{ steps.vars.outputs.runner_json }}
+      head_sha: ${{ steps.vars.outputs.head_sha }}
+      base_sha: ${{ steps.vars.outputs.base_sha }}
+      branch_name: ${{ steps.vars.outputs.branch_name }}
+
+    steps:
+      - name: Set variables
+        id: vars
+        shell: bash
+        env:
+          # GitHub context
+          EVENT_NAME: ${{ github.event_name }}
+          REF:        ${{ github.ref }}
+          REF_NAME:   ${{ github.ref_name }}
+          REPO:       ${{ github.repository }}
+
+          # PR context (empty when not PR)
+          PR_HEAD_SHA:  ${{ github.event.pull_request.head.sha || '' }}
+          PR_BASE_SHA:  ${{ github.event.pull_request.base.sha || '' }}
+          PR_BASE_REF:  ${{ github.event.pull_request.base.ref || '' }}
+
+          # Push context (empty when not push)
+          PUSH_AFTER:   ${{ github.event.after || '' }}
+          PUSH_BEFORE:  ${{ github.event.before || '' }}
+
+          # workflow_dispatch inputs (empty when not dispatch)
+          DISPATCH_HEAD_SHA: ${{ inputs.head-sha }}
+          DISPATCH_BASE_SHA: ${{ inputs.base-sha }}
+          DISPATCH_BRANCH:   ${{ inputs.branch-name }}
+
+          # Derived from armor-checker-options (expression is OK in env:)
+          BUILD_SCRIPT: >-
+            ${{ inputs.armor-checker-options != '' &&
+                fromJSON(inputs.armor-checker-options)['build-script'] != null &&
+                fromJSON(inputs.armor-checker-options)['build-script'] || 'ci/build.sh' }}
+
+          # This must remain valid JSON for later fromJSON()
+          # Default must be a JSON string: "ubuntu-latest"
+          RUNNER_JSON: >-
+            ${{ inputs.armor-checker-options != '' &&
+                fromJSON(inputs.armor-checker-options)['runs-on'] != null &&
+                toJSON(fromJSON(inputs.armor-checker-options)['runs-on']) || '"ubuntu-latest"' }}
+
+        run: |
+          set -euo pipefail
+
+          echo "event_name=$EVENT_NAME" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "build_script=$BUILD_SCRIPT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "runner_json<<EOF"
+            echo "$RUNNER_JSON"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
+            echo "head_sha=$PR_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "base_sha=$PR_BASE_SHA" >> "$GITHUB_OUTPUT"
+            echo "branch_name=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "head_sha=$DISPATCH_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "base_sha=$DISPATCH_BASE_SHA" >> "$GITHUB_OUTPUT"
+            echo "branch_name=$DISPATCH_BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            echo "head_sha=$PUSH_AFTER" >> "$GITHUB_OUTPUT"
+            echo "base_sha=$PUSH_BEFORE" >> "$GITHUB_OUTPUT"
+            echo "branch_name=$REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
