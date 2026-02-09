@@ -1,0 +1,106 @@
+name: ARMOR Checkers Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      base-sha:
+        required: false
+        type: string
+        default: ''
+      head-sha:
+        required: false
+        type: string
+        default: ''
+      branch-name:
+        required: false
+        type: string
+        default: ''
+      armor-checker-options:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare ARMOR Checkers Parameters
+    uses: qualcomm/armor-checkers/.github/workflows/set_checker_vars.yml@test_branch1
+    with:
+      base-sha: ${{ inputs.base-sha }}
+      head-sha: ${{ inputs.head-sha }}
+      branch-name: ${{ inputs.branch-name }}
+      armor-checker-options: ${{ inputs.armor-checker-options }}
+
+  armor-api-check:
+    name: Run ARMOR API Check
+    needs: prepare
+    runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
+    steps:
+      - name: Run ARMOR Tool
+        uses: qualcomm/armor-checkers/.github/actions/api_checker@test_branch1
+        with:
+          event-name:  ${{ needs.prepare.outputs.event_name }}
+          head-sha:    ${{ needs.prepare.outputs.head_sha }}
+          base-sha:    ${{ needs.prepare.outputs.base_sha }}
+          ref:         ${{ needs.prepare.outputs.ref }}
+          repo:        ${{ needs.prepare.outputs.repo }}
+          branch-name: ${{ needs.prepare.outputs.branch_name }}
+
+  abi-check:
+    name: Run ABI Check
+    needs: prepare
+    runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: cf
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="${{ needs.prepare.outputs.base_sha }}"
+          HEAD="${{ needs.prepare.outputs.head_sha }}"
+
+          # List changed files between base and head
+          changed_files="$(git diff --name-only "$BASE" "$HEAD" || true)"
+
+          echo "Changed files:"
+          echo "$changed_files" || true
+
+          # Filter to code extensions
+          code_files="$(echo "$changed_files" | grep -E '\.(h|hpp|c|cpp)$' || true)"
+
+          if [[ -n "${code_files}" ]]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "Matched code files:"
+            echo "$code_files"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "No matching code files found."
+          fi
+
+      - name: Stop early if no code changes
+        if: ${{ steps.cf.outputs.code != 'true' }}
+        shell: bash
+        run: |
+          echo "No *.h/*.hpp/*.c/*.cpp changes detected; skipping ABI check."
+          echo "No code file changes detected between base and head. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Run ABI checks
+        if: ${{ steps.cf.outputs.code == 'true' }}
+        uses: qualcomm/armor-checkers/.github/actions/abi_checker@test_branch1
+        with:
+          event-name:   ${{ needs.prepare.outputs.event_name }}
+          head-sha:     ${{ needs.prepare.outputs.head_sha }}
+          base-sha:     ${{ needs.prepare.outputs.base_sha }}
+          ref:          ${{ needs.prepare.outputs.ref }}
+          repo:         ${{ needs.prepare.outputs.repo }}
+          branch-name:  ${{ needs.prepare.outputs.branch_name }}
+          build-script: ${{ needs.prepare.outputs.build_script }}

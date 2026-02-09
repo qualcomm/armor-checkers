@@ -135,8 +135,24 @@ runs:
         echo "Changed files:"
         cat "$GITHUB_WORKSPACE/changed_files.txt" || true
 
-    - name: Parse YAML for headers (dirs/globs allowed) and expand to file list
+    - name: Check config.yml exists
       if: ${{ steps.install-yq.outputs.yq-installed == 'true' }}
+      id: config_exists
+      shell: bash
+      run: |
+        set -euo pipefail
+        CONFIG="$GITHUB_WORKSPACE/head/public_headers/config.yml"
+
+        if [[ ! -f "$CONFIG" ]]; then
+          echo "public_headers/config.yml not found" >> "$GITHUB_STEP_SUMMARY"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "exists=true" >> "$GITHUB_OUTPUT"
+
+    - name: Parse YAML for headers (dirs/globs allowed) and expand to file list
+      if: ${{ steps.install-yq.outputs.yq-installed == 'true' && steps.config_exists.outputs.exists == 'true' }}
       id: parse-yaml
       shell: bash
       env:
@@ -144,7 +160,7 @@ runs:
         TRACE_PATTERNS: "1"
       run: |
         set -euo pipefail
-        bash "${{ github.action_path }}/../action_scripts/parse_headers.sh" \
+        bash "${{ github.action_path }}/scripts/parse_headers.sh" \
           "$GITHUB_WORKSPACE/head/public_headers/config.yml" \
           "${{ inputs.branch-name }}" \
           "$GITHUB_WORKSPACE/head" \
@@ -167,7 +183,7 @@ runs:
           echo "No intersection found."
           : > "$GITHUB_WORKSPACE/updated_headers_PR.txt"
           echo "has-intersection=false" >> "$GITHUB_OUTPUT"
-          echo "No public header changes detected. Skipping API compatibility checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "public header changes are not detected. skipping API compatibility checks" >> "$GITHUB_STEP_SUMMARY"
         fi
 
     - name: Build docker image for armor bins
@@ -213,7 +229,6 @@ runs:
       run: |
         set -euo pipefail
         ACTION_DIR="${{ github.action_path }}"
-        ACTION_ROOT="$(cd "$ACTION_DIR/.." && pwd)"
         ARMOR_BINS_PATH="$(cat "$GITHUB_WORKSPACE/.armor_bins_path")"
         PROJECT_URL="${{ github.server_url }}/${{ github.repository }}"
         BRANCH="${{ inputs.branch-name }}"
@@ -237,16 +252,15 @@ runs:
           -e PR_NUMBER="${PR_NUMBER}" \
           -e workflow_url="${workflow_url}" \
           -e ACTION_DIR="$ACTION_DIR" \
-          -e ACTION_ROOT="$ACTION_ROOT" \
           -e GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
           -e ARMOR_BINS_PATH="${ARMOR_BINS_PATH}" \
           -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" \
-          -v "$ACTION_ROOT":"$ACTION_ROOT" \
-          -w "$GITHUB_WORKSPACE" \
+          -v "$ACTION_DIR":"$ACTION_DIR" \
+          -w /work \
           armor_tool:latest bash -c '
             set -euo pipefail
-            chmod +x "$ACTION_ROOT/action_scripts/run_armor.sh"
-            "$ACTION_ROOT/action_scripts/run_armor.sh" \
+            chmod +x "$ACTION_DIR/scripts/run_armor.sh"
+            "$ACTION_DIR/scripts/run_armor.sh" \
               "$GITHUB_WORKSPACE/base" \
               "$GITHUB_WORKSPACE/head" \
               "$GITHUB_WORKSPACE/updated_headers_PR.txt" \

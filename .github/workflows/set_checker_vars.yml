@@ -1,0 +1,89 @@
+name: Setup ARMOR Checker Parameters
+description: Setup parameters (event context, SHAs, branch, repo, build script, runner)
+on:
+  workflow_call:
+    inputs:
+      base-sha:
+        required: false
+        type: string
+        default: ''
+      head-sha:
+        required: false
+        type: string
+        default: ''
+      branch-name:
+        required: false
+        type: string
+        default: ''
+      armor-checker-options:
+        required: false
+        type: string
+        default: ''
+
+    outputs:
+      event_name:
+        value: ${{ jobs.setup.outputs.event_name }}
+      head_sha:
+        value: ${{ jobs.setup.outputs.head_sha }}
+      base_sha:
+        value: ${{ jobs.setup.outputs.base_sha }}
+      branch_name:
+        value: ${{ jobs.setup.outputs.branch_name }}
+      ref:
+        value: ${{ jobs.setup.outputs.ref }}
+      repo:
+        value: ${{ jobs.setup.outputs.repo }}
+      build_script:
+        value: ${{ jobs.setup.outputs.build_script }}
+      runner_json:
+        value: ${{ jobs.setup.outputs.runner_json }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      event_name: ${{ steps.vars.outputs.event_name }}
+      ref: ${{ steps.vars.outputs.ref }}
+      repo: ${{ steps.vars.outputs.repo }}
+      build_script: ${{ steps.vars.outputs.build_script }}
+      runner_json: ${{ steps.vars.outputs.runner_json }}
+      head_sha: ${{ steps.vars.outputs.head_sha }}
+      base_sha: ${{ steps.vars.outputs.base_sha }}
+      branch_name: ${{ steps.vars.outputs.branch_name }}
+
+    steps:
+      - name: Set variables
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "event_name=${{ github.event_name }}" >> "$GITHUB_OUTPUT"
+          echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+          echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+
+          echo "build_script=${{ inputs.armor-checker-options != '' &&
+            fromJSON(inputs.armor-checker-options)['build-script'] != null &&
+            fromJSON(inputs.armor-checker-options)['build-script'] || 'ci/build.sh' }}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "runner_json<<EOF"
+            echo '${{ inputs.armor-checker-options != '' &&
+              fromJSON(inputs.armor-checker-options)['runs-on'] != null &&
+              toJSON(fromJSON(inputs.armor-checker-options)['runs-on']) || '"ubuntu-latest"' }}'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+            echo "head_sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "base_sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "branch_name=${{ github.event.pull_request.base.ref }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "head_sha=${{ inputs.head-sha }}" >> "$GITHUB_OUTPUT"
+            echo "base_sha=${{ inputs.base-sha }}" >> "$GITHUB_OUTPUT"
+            echo "branch_name=${{ inputs.branch-name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "head_sha=${{ github.event.after }}" >> "$GITHUB_OUTPUT"
+            echo "base_sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "branch_name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
