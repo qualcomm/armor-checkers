@@ -1,13 +1,50 @@
 
 # armor-checkers
-This repository provides reusable GitHub Actions and supporting shell scripts to validate **backward compatibility** of APIs. It supports both **source level (API)** and **binary level (ABI)** checks to ensure safe, stable, and compatible changes across releases.
+Reusable GitHub Actions and workflows for validating backward compatibility in Qualcomm C/C++ projects.
+The repository provides modular API (source‑level) and ABI (binary‑level) compatibility checks to help detect api breaking changes early in CI and ensure stable releases.
 
 ### Overview
-The repository offers modular resuable github actions—each focused on a specific compatibility task:
-*   **API Compatibility Checks:** Detect source‑level breaking changes such as removed/modified functions, structs, or enums using armor tool https://github.com/qualcomm/armor.
-*   **ABI Compatibility Checks:** Validate binary‑level stability using tools like *libabigail*, identifying layout changes, symbol removals, or interface mismatches.
+*   **API Compatibility Check:** Detects source‑level breaking changes (e.g., modified/removed functions, structs, enums) using the ARMOR tool https://github.com/qualcomm/armor.
+*   **ABI Compatibility Check:** Validates binary‑level stability using libabigail (abidiff), detecting issues such as:
 
-These actions can be integrated into any CI workflow to automatically enforce API/ABI backward compatibility across branches and releases.
+    * Layout or padding changes
+    * Symbol additions/removals
+    * Incompatible binary interface changes
+
+### Features
+* Reusable GitHub Actions and workflows
+* Automatic API/ABI comparison between base and head commits
+* Works with any C/C++ project exposing public headers and build scripts
+* Extensible design for future compatibility‑related checks
+
+### Usage
+Create a workflow (e.g., .github/workflows/compatibility-check.yml):
+
+    name: Compatibility Checks
+
+    on:
+      pull_request:
+        types: [opened, synchronize, reopened]
+
+
+    jobs:
+      armor-checkers:
+        uses: qualcomm/armor-checkers/.github/workflows/armor-checker.yml@v2
+        with:
+          armor-checker-options: >-
+            {
+            "build-script": "ci/build.sh",
+
+            // Optional: Use runner groups / self‑hosted runner labels
+            "runs-on": {
+                "group": "",
+                "labels": ["", ""]
+            }
+
+            // Or use a simple GitHub-hosted runner (default)
+            // "runs-on": "ubuntu-latest"
+            }
+This integrates automatic API/ABI backward‑compatibility validation into your CI pipeline.
 
 ## License
 
