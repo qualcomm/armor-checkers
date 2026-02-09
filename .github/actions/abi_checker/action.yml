@@ -50,10 +50,14 @@
 
       - name: Echo paths and SHAs
         shell: bash
+        env:
+          EVENT_NAME: ${{ inputs.event-name }}
+          BASE_SHA:   ${{ inputs.base-sha }}
+          HEAD_SHA:   ${{ inputs.head-sha }}
         run: |
-          echo "Event        : ${{ inputs.event-name }}"
-          echo "Base SHA     : ${{ inputs.base-sha }}"
-          echo "Head SHA     : ${{ inputs.head-sha }}"
+          echo "Event        : $EVENT_NAME"
+          echo "Base SHA     : $BASE_SHA"
+          echo "Head SHA     : $HEAD_SHA"
           echo "github-base path  : $GITHUB_WORKSPACE/base"
           echo "github-head path  : $GITHUB_WORKSPACE/head"
 
@@ -113,9 +117,11 @@
       - name: Verify build script exists
         id: verify-build-script
         shell: bash
+        env:
+          BUILD_SCRIPT: ${{ inputs.build-script }}
         run: |
           set -euo pipefail
-          SCRIPT_PATH="$GITHUB_WORKSPACE/head/${{ inputs.build-script }}"
+          SCRIPT_PATH="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
           echo "Checking for build script: $SCRIPT_PATH"
 
           if [[ ! -f "$SCRIPT_PATH" ]]; then
@@ -207,10 +213,11 @@
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
         working-directory: base
+        env:
+          BUILD_SCRIPT: ${{ inputs.build-script }}
         run: |
           set -euo pipefail
-
-          SCRIPT="$GITHUB_WORKSPACE/head/${{ inputs.build-script }}"
+          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
           echo ">>> Running base build using $SCRIPT"
 
           cp "$SCRIPT" ./build_script.sh
@@ -220,15 +227,16 @@
           if [[ $rc -ne 0 ]]; then
             echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
           fi
-
+  
       - name: Run build script (Head/PR)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
         working-directory: head
+        env:
+          BUILD_SCRIPT: ${{ inputs.build-script }}
         run: |
           set -euo pipefail
-
-          SCRIPT="$GITHUB_WORKSPACE/head/${{ inputs.build-script }}"
+          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
           echo ">>> Running head build using $SCRIPT"
           bash "$SCRIPT"
           rc=$?
@@ -240,45 +248,44 @@
         if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
         id: create-metadata
         shell: bash
+        env:
+          REPORTS_DIR:  ${{ github.workspace }}/abichecker_reports
+          SERVER_URL:   ${{ github.server_url }}
+          REPO:         ${{ github.repository }}
+          RUN_ID:       ${{ github.run_id }}
+          EVENT_NAME:   ${{ github.event_name }}
+          PR_NUMBER:    ${{ github.event.pull_request.number || '' }}
+          BRANCH_NAME:  ${{ inputs.branch-name }}
+          HEAD_SHA:     ${{ inputs.head-sha }}
+          BASE_SHA:     ${{ inputs.base-sha }}
         run: |
           set -euo pipefail
 
-          REPORTS_DIR="$GITHUB_WORKSPACE/abichecker_reports"
           mkdir -p "$REPORTS_DIR"
 
-          PROJECT_URL="${{ github.server_url }}/${{ github.repository }}"
-          BRANCH="${{ inputs.branch-name }}"
-          EVENT="${{ github.event_name }}"
-
-          if [[ "$EVENT" == pull_request* ]]; then
-            PR_NUMBER=${{ github.event.pull_request.number }}
-          else
-            PR_NUMBER=""
-          fi
+          PROJECT_URL="$SERVER_URL/$REPO"
+          WORKFLOW_URL="$SERVER_URL/$REPO/actions/runs/$RUN_ID"
+          ARTIFACTS_URL="$WORKFLOW_URL#artifacts"
 
           TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-          HEAD_SHA="${{ inputs.head-sha }}"
-          BASE_SHA="${{ inputs.base-sha }}"
-
-          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          ARTIFACTS_URL="${WORKFLOW_URL}#artifacts"
-
           cat > "$REPORTS_DIR/abi_metadata.json" <<EOF
           {
-            "project_url": "${PROJECT_URL}",
-            "branch": "${BRANCH}",
-            "github_event": "${EVENT}",
-            "pr_number": ${PR_NUMBER},
-            "timestamp": "${TIMESTAMP}",
-            "head_sha": "${HEAD_SHA}",
-            "base_sha": "${BASE_SHA}",
-            "artifacts": "${ARTIFACTS_URL}",
+            "project_url": "$PROJECT_URL",
+            "branch": "$BRANCH_NAME",
+            "github_event": "$EVENT_NAME",
+            "pr_number": $PR_NUMBER,
+            "timestamp": "$TIMESTAMP",
+            "head_sha": "$HEAD_SHA",
+            "base_sha": "$BASE_SHA",
+            "artifacts": "$ARTIFACTS_URL",
             "binaries": []
           }
           EOF
+
           echo "metadata_created_path=$REPORTS_DIR/abi_metadata.json" >> "$GITHUB_OUTPUT"
           echo "Initialized abi_metadata.json at $REPORTS_DIR/abi_metadata.json"
+
 
       - name: Run ABI checks
         if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
