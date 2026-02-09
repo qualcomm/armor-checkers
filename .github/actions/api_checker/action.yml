@@ -144,7 +144,7 @@ runs:
         CONFIG="$GITHUB_WORKSPACE/head/public_headers/config.yml"
 
         if [[ ! -f "$CONFIG" ]]; then
-          echo "public_headers/config.yml not found" >> "$GITHUB_STEP_SUMMARY"
+          echo "configuration file (public_headers/config.yml) not found. Skipping API checks." >> "$GITHUB_STEP_SUMMARY"
           echo "exists=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
@@ -167,7 +167,7 @@ runs:
           "$GITHUB_WORKSPACE"
 
     - name: Find intersection of changed files and headers
-      if: ${{ steps.install-yq.outputs.yq-installed == 'true' }}
+      if: ${{ steps.install-yq.outputs.yq-installed == 'true' && steps.config_exists.outputs.exists == 'true' }}
       id: intersection
       shell: bash
       run: |
