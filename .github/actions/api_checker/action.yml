@@ -1,4 +1,3 @@
-
 name: "Run ARMOR tool"
 description: "Run ARMOR tool"
 branding:
@@ -52,7 +51,7 @@ runs:
         ref: ${{ inputs.head-sha }}
         path: head
         fetch-depth: 0
-    
+
     - name: Checkout ARMOR tool repository
       uses: actions/checkout@v4
       with:
@@ -63,12 +62,16 @@ runs:
 
     - name: Echo paths and SHAs
       shell: bash
+      env:
+        EVENT_NAME: ${{ inputs.event-name }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
       run: |
-        echo "Event        : ${{ inputs.event-name }}"
-        echo "Base SHA     : ${{ inputs.base-sha }}"
-        echo "Head SHA     : ${{ inputs.head-sha }}"
-        echo "github-base path  : $GITHUB_WORKSPACE/base"
-        echo "github-head path  : $GITHUB_WORKSPACE/head"
+        echo "Event        : \"$EVENT_NAME\""
+        echo "Base SHA     : \"$BASE_SHA\""
+        echo "Head SHA     : \"$HEAD_SHA\""
+        echo "github-base path  : \"$GITHUB_WORKSPACE/base\""
+        echo "github-head path  : \"$GITHUB_WORKSPACE/head\""
 
     - name: Verify gcc and Docker installation
       shell: bash
@@ -126,11 +129,14 @@ runs:
     - name: Get changed files
       id: changed-files
       shell: bash
+      env:
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
       run: |
         set -e
         # Diff directly using the two trees
         git --git-dir="$GITHUB_WORKSPACE/head/.git" --work-tree="$GITHUB_WORKSPACE/head" \
-          diff --name-only ${{ inputs.base-sha }} ${{ inputs.head-sha }} > "$GITHUB_WORKSPACE/changed_files.txt" || true
+          diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$GITHUB_WORKSPACE/changed_files.txt" || true
 
         echo "Changed files:"
         cat "$GITHUB_WORKSPACE/changed_files.txt" || true
@@ -158,11 +164,13 @@ runs:
       env:
         DEBUG: "1"
         TRACE_PATTERNS: "1"
+        ACTION_PATH: ${{ github.action_path }}
+        BRANCH_NAME: ${{ inputs.branch-name }}
       run: |
         set -euo pipefail
-        bash "${{ github.action_path }}/scripts/parse_headers.sh" \
+        bash "$ACTION_PATH/scripts/parse_headers.sh" \
           "$GITHUB_WORKSPACE/head/public_headers/config.yml" \
-          "${{ inputs.branch-name }}" \
+          "$BRANCH_NAME" \
           "$GITHUB_WORKSPACE/head" \
           "$GITHUB_WORKSPACE"
 
@@ -194,13 +202,11 @@ runs:
         ARMOR_DIR="$GITHUB_WORKSPACE/armor-src"
         docker build -t armor_tool:latest -f "$ARMOR_DIR/Dockerfile" "$ARMOR_DIR"
 
-
     - name: Build ARMOR tool inside container
       if: steps.intersection.outputs.has-intersection == 'true'
       shell: bash
       run: |
         set -euo pipefail
-        ACTION_DIR="${{ github.action_path }}"
         ARMOR_DIR="$GITHUB_WORKSPACE/armor-src"
 
         docker run -i --rm \
@@ -226,34 +232,30 @@ runs:
         REPORT_FORMAT: "json"
         LOG_LEVEL: "DEBUG"
         DUMP_AST_DIFF: "true"
+        ACTION_DIR: ${{ github.action_path }}
+        PROJECT_URL: ${{ github.server_url }}/${{ github.repository }}
+        BRANCH: ${{ inputs.branch-name }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        # Provide PR number only for PR events; empty otherwise
+        PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
+        WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
-        ACTION_DIR="${{ github.action_path }}"
         ARMOR_BINS_PATH="$(cat "$GITHUB_WORKSPACE/.armor_bins_path")"
-        PROJECT_URL="${{ github.server_url }}/${{ github.repository }}"
-        BRANCH="${{ inputs.branch-name }}"
-        GITHUB_EVENT="${{ github.event_name }}"
-        if [[ "$GITHUB_EVENT" == pull_request* ]]; then
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-        else
-          PR_NUMBER=""
-        fi
-        workflow_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-        # Mount the workspace and action dir into the container and run the script inside
         docker run -i --rm \
           --user "$(id -u)":"$(id -g)" \
-          -e REPORT_FORMAT="${REPORT_FORMAT}" \
-          -e LOG_LEVEL="${LOG_LEVEL}" \
-          -e DUMP_AST_DIFF="${DUMP_AST_DIFF}" \
-          -e PROJECT_URL="${PROJECT_URL}" \
-          -e BRANCH="${BRANCH}" \
-          -e GITHUB_EVENT="${GITHUB_EVENT}" \
-          -e PR_NUMBER="${PR_NUMBER}" \
-          -e workflow_url="${workflow_url}" \
+          -e REPORT_FORMAT="$REPORT_FORMAT" \
+          -e LOG_LEVEL="$LOG_LEVEL" \
+          -e DUMP_AST_DIFF="$DUMP_AST_DIFF" \
+          -e PROJECT_URL="$PROJECT_URL" \
+          -e BRANCH="$BRANCH" \
+          -e GITHUB_EVENT="$GITHUB_EVENT_NAME" \
+          -e PR_NUMBER="$PR_NUMBER" \
+          -e workflow_url="$WORKFLOW_URL" \
           -e ACTION_DIR="$ACTION_DIR" \
           -e GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-          -e ARMOR_BINS_PATH="${ARMOR_BINS_PATH}" \
+          -e ARMOR_BINS_PATH="$ARMOR_BINS_PATH" \
           -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" \
           -v "$ACTION_DIR":"$ACTION_DIR" \
           -w /work \
@@ -266,10 +268,11 @@ runs:
               "$GITHUB_WORKSPACE/updated_headers_PR.txt" \
               "$ARMOR_BINS_PATH"
           '
+
         # Expose out-root path
         ls "$GITHUB_WORKSPACE/.armor_out_root"
         OUT_ROOT="$(cat "$GITHUB_WORKSPACE/.armor_out_root")"
-        echo "out-root=${OUT_ROOT}" >> "$GITHUB_OUTPUT"
+        echo "out-root=$OUT_ROOT" >> "$GITHUB_OUTPUT"
 
     - name: Upload all armor outputs (artifact)
       if: steps.intersection.outputs.has-intersection == 'true'
@@ -296,47 +299,55 @@ runs:
     - name: Upload folder to S3
       if: steps.intersection.outputs.has-intersection == 'true'
       shell: bash
+      env:
+        OUT_ROOT: ${{ steps.run-armor.outputs.out-root }}
+        SERVER_URL: ${{ github.server_url }}
+        REPOSITORY: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
       run: |
         set -e
-        FOLDER="${{ steps.run-armor.outputs.out-root }}"
+        FOLDER="$OUT_ROOT"
         BUCKET="s3://qli-stg-armor-gh-artifacts"
         YYYY="$(date -u +'%Y')"
         MM="$(date -u +'%m')"
         DD="$(date -u +'%d')"
         HH="$(date -u +'%H')"
-        HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
-        PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${{ github.repository }}/${GITHUB_REF_NAME}/${{ github.run_id }}/files"
+        HOST="$(printf '%s' "$SERVER_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
+        PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${REPOSITORY}/${GITHUB_REF_NAME}/${RUN_ID}/files"
         echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
         set +e
         ERR_FILE="$(mktemp)"
-        aws s3 cp "${FOLDER}" "${BUCKET}/${PREFIX}" \
+        aws s3 cp "$FOLDER" "${BUCKET}/${PREFIX}" \
           --recursive \
           --content-type "application/octet-stream" \
           --only-show-errors \
-          2> "${ERR_FILE}"
+          2> "$ERR_FILE"
         rc=$?
         set -e
         if [[ ${rc} -eq 0 ]]; then
           echo "S3 upload succeeded."
         else
-          reason="$(cat "${ERR_FILE}")"
+          reason="$(cat "$ERR_FILE")"
           echo "::error :: S3 upload FAILED (rc=${rc})."
           echo "::error :: Reason: ${reason:-No error output captured}"
         fi
-        rm -f "${ERR_FILE}"
+        rm -f "$ERR_FILE"
 
     - name: Prepare ARMOR summary
       if: steps.intersection.outputs.has-intersection == 'true'
       id: prepare-comment
       shell: bash
+      env:
+        WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        OUT_ROOT: ${{ steps.run-armor.outputs.out-root }}
+        STATUS: ${{ steps.compatibility_status.outputs.res }}
       run: |
         set -euo pipefail
-        workflow_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        artifacts="${workflow_url}#artifacts"
-        out_root="${{ steps.run-armor.outputs.out-root }}"
+        artifacts="${WORKFLOW_URL}#artifacts"
+        out_root="$OUT_ROOT"
         blk="${out_root}/incompatible_blocking.txt"
         nbk="${out_root}/incompatible_nonblocking.txt"
-        status="${{ steps.compatibility_status.outputs.res }}"
+        status="$STATUS"
 
         body="$(cat <<'EOF'
         ### ARMOR Check Result
