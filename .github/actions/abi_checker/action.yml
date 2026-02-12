@@ -254,7 +254,7 @@
           REPO:         ${{ github.repository }}
           RUN_ID:       ${{ github.run_id }}
           EVENT_NAME:   ${{ github.event_name }}
-          PR_NUMBER:    ${{ github.event.pull_request.number || '' }}
+          PR_NUMBER:    ${{ github.event.pull_request.number || 'null' }}
           BRANCH_NAME:  ${{ inputs.branch-name }}
           HEAD_SHA:     ${{ inputs.head-sha }}
           BASE_SHA:     ${{ inputs.base-sha }}
