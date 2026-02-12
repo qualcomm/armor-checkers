@@ -286,7 +286,6 @@
           echo "metadata_created_path=$REPORTS_DIR/abi_metadata.json" >> "$GITHUB_OUTPUT"
           echo "Initialized abi_metadata.json at $REPORTS_DIR/abi_metadata.json"
 
-
       - name: Run ABI checks
         if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
         id: run-abi
@@ -300,20 +299,35 @@
           bash "${{ github.action_path }}/scripts/run_abi_checks.sh" "$manifest" "$reports_dir" "$policy"
       
       - name: Upload abidiff reports
-        if: ${{ always() && steps.run-abi.outputs.abi_result != '' }}
+        if: ${{ steps.run-abi.outputs.abi_result != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: abichecker-reports
           path: ${{ github.workspace }}/abichecker_reports
       
-      - name: Upload folder to S3
-        if: ${{ always() && steps.run-abi.outputs.abi_result != '' }}
+      - name: Upload metadata to S3
+        if: ${{ steps.run-abi.outputs.abi_result != '' }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           FOLDER="$GITHUB_WORKSPACE/abichecker_reports"
           META="$FOLDER/abi_metadata.json"
+
+          # file must exist and be non-empty
           [[ -s "$META" ]] || { echo "::error :: abi_metadata.json not found or empty"; exit 1; }
+
+          # must be valid JSON
+            jq -e . "$META" >/dev/null 2>&1 || { echo "::error :: abi_metadata.json is not valid JSON"; exit 1; }
+
+          # If a manifest existed and was non-empty, require at least one binary record
+          MANIFEST="$GITHUB_WORKSPACE/abi_manifest.tsv"
+          if [[ -s "$MANIFEST" ]]; then
+            jq -e '.binaries | length > 0' "$META" >/dev/null || {
+              echo "::error :: abi_metadata.json: binaries empty but manifest had entries"
+              exit 1
+            }
+          fi
           BUCKET="s3://qli-stg-armor-gh-artifacts"
           YYYY="$(date -u +'%Y')"; MM="$(date -u +'%m')"; DD="$(date -u +'%d')"; HH="$(date -u +'%H')"
           HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
@@ -337,7 +351,7 @@
           rm -f "${ERR_FILE}"
 
       - name: ABI check result
-        if: ${{ always() && steps.run-abi.outputs.abi_result != '' }}
+        if: ${{ steps.run-abi.outputs.abi_result != '' }}
         shell: bash
         run: |
           set -euo pipefail
