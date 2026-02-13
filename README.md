@@ -44,8 +44,27 @@ Create a workflow (e.g., .github/workflows/compatibility-check.yml):
             // Or use a simple GitHub-hosted runner (default)
             // "runs-on": "ubuntu-latest"
             }
+
 This integrates automatic API/ABI backward‑compatibility validation into your CI pipeline.
 
+### Configuration options
+ `armor-checker-options` is a JSON parameter passed to the reusable workflow. It controls how API/ABI checks run.
+ * **Supported fields:**
+* `build-script` **(required for ABI checks)**
+   * Specifies the script path that builds the project and generates binaries for ABI comparison.
+   * Default: ci/build.sh
+   * Update if the build script path changes
+
+* `runs-on` **(required for API & ABI)**
+   * Defines which runner to execute the checks on.
+   * If your project already uses AWS self‑hosted runners,it is **recommended** to use them for armor-checkers, because they provide the necessary access for ARMOR Checkers workflow to upload API/ABI metrics to the S3 bucket.
+   * If omitted, GitHub‑hosted runners are used by default; however, in this case ARMOR Checkers cannot upload API/ABI metrics to the S3 bucket.
+```
+      "runs-on": {
+        "group": "aws-runner-group",
+        "labels": ["label1", "label2"]
+      }
+```
 ## License
 
 armor-checkers is licensed under the [BSD-3-Clause-Clear License](https://spdx.org/licenses/BSD-3-Clause-Clear.html). See [LICENSE.txt](LICENSE.txt) for the full license text.
