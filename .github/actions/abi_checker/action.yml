@@ -215,31 +215,32 @@
         working-directory: base
         env:
           BUILD_SCRIPT: ${{ inputs.build-script }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}/base
         run: |
           set -euo pipefail
-          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+          SCRIPT="${GITHUB_WORKSPACE}/../head/${BUILD_SCRIPT}"   # original script lives in 'head'
           echo ">>> Running base build using $SCRIPT"
-
           cp "$SCRIPT" ./build_script.sh
           chmod +x ./build_script.sh
           ./build_script.sh
-          rc=$?
+          rc=$? || true
           if [[ $rc -ne 0 ]]; then
             echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
           fi
-  
+
       - name: Run build script (Head/PR)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
         working-directory: head
         env:
           BUILD_SCRIPT: ${{ inputs.build-script }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}/head
         run: |
           set -euo pipefail
-          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+          SCRIPT="${GITHUB_WORKSPACE}/${BUILD_SCRIPT}"
           echo ">>> Running head build using $SCRIPT"
           bash "$SCRIPT"
-          rc=$?
+          rc=$? || true
           if [[ $rc -ne 0 ]]; then
             echo "Head build failed" >> "$GITHUB_STEP_SUMMARY"
           fi
