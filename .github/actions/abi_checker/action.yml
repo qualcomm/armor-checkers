@@ -214,10 +214,8 @@
         run: |
           set -euo pipefail
           SCRIPT="${GITHUB_WORKSPACE}/../head/${BUILD_SCRIPT}"   # original script lives in 'head'
-          echo ">>> Running base build using $SCRIPT"
-          cp "$SCRIPT" ./build_script.sh
-          chmod +x ./build_script.sh
-          ./build_script.sh
+          echo ">>> Running base build using script at $SCRIPT"
+          bash "$SCRIPT"
           rc=$? || true
           if [[ $rc -ne 0 ]]; then
             echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
@@ -235,7 +233,7 @@
         run: |
           set -euo pipefail
           SCRIPT="${GITHUB_WORKSPACE}/${BUILD_SCRIPT}"
-          echo ">>> Running head build using $SCRIPT"
+          echo ">>> Running head build using script at $SCRIPT"
           bash "$SCRIPT"
           rc=$? || true
           if [[ $rc -ne 0 ]]; then
