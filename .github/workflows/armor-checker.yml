@@ -26,7 +26,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare ARMOR Checkers Parameters
-    uses: qualcomm/armor-checkers/.github/workflows/set_checker_vars.yml@main
+    uses: qualcomm/armor-checkers/.github/workflows/set_checker_vars.yml@test_branch
     with:
       base-sha: ${{ inputs.base-sha }}
       head-sha: ${{ inputs.head-sha }}
@@ -39,7 +39,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
       - name: Run ARMOR Tool
-        uses: qualcomm/armor-checkers/.github/actions/api_checker@main
+        uses: qualcomm/armor-checkers/.github/actions/api_checker@test_branch
         with:
           event-name:  ${{ needs.prepare.outputs.event_name }}
           head-sha:    ${{ needs.prepare.outputs.head_sha }}
@@ -95,7 +95,7 @@ jobs:
 
       - name: Run ABI checks
         if: ${{ steps.cf.outputs.code == 'true' }}
-        uses: qualcomm/armor-checkers/.github/actions/abi_checker@main
+        uses: qualcomm/armor-checkers/.github/actions/abi_checker@test_branch
         with:
           event-name:   ${{ needs.prepare.outputs.event_name }}
           head-sha:     ${{ needs.prepare.outputs.head_sha }}

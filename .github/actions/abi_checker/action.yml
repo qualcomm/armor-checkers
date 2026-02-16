@@ -202,13 +202,6 @@
           fi
           echo "${ver}"
 
-      - name: Export debug flags for DWARF
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' }}
-        shell: bash
-        run: |
-          echo 'CFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
-          echo 'CXXFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
-
       - name: Run build script (Base)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
@@ -216,6 +209,8 @@
         env:
           BUILD_SCRIPT: ${{ inputs.build-script }}
           GITHUB_WORKSPACE: ${{ github.workspace }}/base
+          CFLAGS:  -g -Og -fno-eliminate-unused-debug-types
+          CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
         run: |
           set -euo pipefail
           SCRIPT="${GITHUB_WORKSPACE}/../head/${BUILD_SCRIPT}"   # original script lives in 'head'
@@ -235,6 +230,8 @@
         env:
           BUILD_SCRIPT: ${{ inputs.build-script }}
           GITHUB_WORKSPACE: ${{ github.workspace }}/head
+          CFLAGS:  -g -Og -fno-eliminate-unused-debug-types
+          CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
         run: |
           set -euo pipefail
           SCRIPT="${GITHUB_WORKSPACE}/${BUILD_SCRIPT}"
