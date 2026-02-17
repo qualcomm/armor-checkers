@@ -351,11 +351,9 @@ runs:
 
         body="$(cat <<'EOF'
         ### ARMOR Check Result
-        **Status:** __STATUS__
         Please check __ARTIFACTS__ for details.
         EOF
         )"
-        body="${body/__STATUS__/${status}}"
         body="${body/__ARTIFACTS__/${artifacts}}"
 
         # Segregated incompatible lists
