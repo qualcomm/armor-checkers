@@ -213,7 +213,12 @@
           CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
         run: |
           set -euo pipefail
+          echo "$GITHUB_WORKSPACE"
+          echo "$CFLAGS"
+          echo "$CXXFLAGS"
+          
           SCRIPT="${GITHUB_WORKSPACE}/../head/${BUILD_SCRIPT}"   # original script lives in 'head'
+          echo "$SCRIPT"
           echo ">>> Running base build using script at $SCRIPT"
           bash "$SCRIPT"
           rc=$? || true
