@@ -1,20 +1,14 @@
-
 #!/usr/bin/env bash
 # Runs abidiff command for each pair listed in a TSV manifest and writes a Markdown summary.
 # Expected TSV manifest format:
 #   name    head_path    base_path    suppressions    extra_args    public_headers
 # Usage:
-#   run-abidiff.sh <manifest> <reports_dir> [policy]
-# policy:
-#   strict          - fail on any ABI change (changed or incompatible) or internal error
-#   incompat-only   - fail only on incompatible changes or errors (default)
-
+#   run_abi_checks.sh <manifest> <reports_dir>
 
 set -euo pipefail
 
 manifest="${1:-abi_manifest.tsv}"
 reports_dir="${2:-abichecker_reports}"
-policy="${3:-incompat-only}"
 stage_root="${4:-${ABI_STAGE_DIR:-${RUNNER_TEMP:-/tmp}/abi-stage}}"
 mkdir -p "$stage_root"
 
@@ -22,7 +16,7 @@ cleanup_stage=1
 trap 'if (( cleanup_stage )) && [[ -d "$stage_root" ]]; then rm -rf "$stage_root"; fi' EXIT
 
 if [[ -z "${manifest}" || -z "${reports_dir}" ]]; then
-  echo "::error::Usage: run-abidiff.sh <manifest> <reports_dir> [policy]"
+  echo "::error::Usage: run-abidiff.sh <manifest> <reports_dir>"
   exit 2
 fi
 
@@ -41,7 +35,7 @@ SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
   echo "|:-------|:-------|:------|"
 } >> "$SUMMARY"
 
-total=0; ok=0; changed_review=0; changed_incompat=0; errs=0
+total=0; ok=0; changed_abi=0; changed_incompat=0; errs=0
 
 # Normalize CRLF if any
 if file "$manifest" | grep -qi 'CRLF'; then sed -i 's/\r$//' "$manifest"; fi
@@ -75,6 +69,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   out_file="${reports_dir}/${report_rel}"
   report_display="$(basename "$reports_dir")/${report_rel}"
   run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+
   # Check presence of base/head simultaneously
   missing_base=0
   missing_head=0
@@ -151,10 +146,8 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   pair_stage_root="$stage_root/${safe_name}"
 
   # Track which header files we copied into temp dirs
-  # files staged into "$tmp_hdr_base"
-  copied_base=()
-  # files staged into "$tmp_hdr_head"   
-  copied_head=()
+  copied_base=()   # files staged into "$tmp_hdr_base"
+  copied_head=()   # files staged into "$tmp_hdr_head"
 
   ensure_tmp_dirs() {
     [[ -n "$tmp_hdr_base" && -n "$tmp_hdr_head" ]] && return 0
@@ -275,6 +268,25 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   rc=$?
   set -e
 
+  func_removed=0; func_changed=0; var_removed=0; var_changed=0
+  func_line="$(grep -E '^[[:space:]]*Functions changes summary:' -m1 "$out_file" || true)"
+  var_line="$(grep -E '^[[:space:]]*Variables changes summary:' -m1 "$out_file" || true)"
+  if [[ -n "$func_line" ]]; then
+    # Extract "<num> Removed" and "<num> Changed" from the functions summary line
+    func_removed="$(sed -E 's/.*Functions changes summary:[[:space:]]*([0-9]+)[[:space:]]+Removed.*/\1/' <<<"$func_line" 2>/dev/null || echo 0)"
+    func_changed="$(sed -E 's/.*Removed,[[:space:]]*([0-9]+)[[:space:]]+Changed.*/\1/' <<<"$func_line" 2>/dev/null || echo 0)"
+  fi
+  if [[ -n "$var_line" ]]; then
+    # Extract "<num> Removed" and "<num> Changed" from the variables summary line
+    var_removed="$(sed -E 's/.*Variables changes summary:[[:space:]]*([0-9]+)[[:space:]]+Removed.*/\1/' <<<"$var_line" 2>/dev/null || echo 0)"
+    var_changed="$(sed -E 's/.*Removed,[[:space:]]*([0-9]+)[[:space:]]+Changed.*/\1/' <<<"$var_line" 2>/dev/null || echo 0)"
+  fi
+  # Policy: only for rc=4, treat as incompatible if either functions OR variables show Removed/Changed > 0
+  summary_rc4_incompat=0
+  if (( rc == 4 )) && (( func_removed>0 || func_changed>0 || var_removed>0 || var_changed>0 )); then
+    summary_rc4_incompat=1
+  fi
+
   # Decode rc bits
   ABIDIFF_ERROR=1
   ABIDIFF_USAGE_ERROR=2
@@ -289,8 +301,8 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   if (( rc == 0 )); then
     echo "No ABI differences detected." >>"$out_file"  
     ok=$((ok+1))
-    echo "| \`${name}\` | ✅&nbsp;Compatible | No ABI differences |" >> "$SUMMARY"
-    collect_binary "$name" "compatible"
+    echo "| \`${name}\` | ✅&nbsp;Compatible | No ABI differences detected |" >> "$SUMMARY"
+    collect_binary "$name" "compatible (no-diff)"
   
   elif (( has_error )); then
     errs=$((errs+1)); note="Internal error"; (( has_usage )) && note="Usage error"
@@ -298,47 +310,55 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     echo "| \`${name}\` | ❌&nbsp;Error | ${note}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   
-  elif (( has_incompat )); then
+  elif (( has_incompat || summary_rc4_incompat )); then
     changed_incompat=$((changed_incompat+1))
-    echo "::error::ABI incompatible changes in ${name} (rc=${rc})" >>"$out_file"
+    if (( has_incompat )); then
+      echo "::error::ABI incompatible changes in ${name} (rc=${rc})" >>"$out_file"
+    else
+      echo "::error:: rc=4 with removed/changed functions or variables; marking as incompatible" >>"$out_file"
+      echo "Functions summary: removed=${func_removed}, changed=${func_changed}; Variables summary: removed=${var_removed}, changed=${var_changed}" >>"$out_file"
+    fi
     echo "| \`${name}\` | ❌&nbsp;Incompatible | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "incompatible"
   
   elif (( has_change )); then
-    changed_review=$((changed_review+1))
-    warn_to_out "ABI changes (review needed) in ${name} (rc=${rc})"
-    echo "| \`${name}\` | ⚠️&nbsp;ABI changed (review required) | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
-    collect_binary "$name" "ABI changed (review required)"
+    # We reach here only if it's NOT an explicit incompatible (no bit 8)
+    # and NOT promoted by summary_rc4_incompat.
+    changed_abi=$((changed_abi+1))
+    echo "rc=4 (ABI changed) but policy accepts as compatible-abidiff for ${name}" >>"$out_file"
+    echo "| \`${name}\` | ✅&nbsp;Compatible (abidiff-change) | detected ABI changes ${run_url} |" >> "$SUMMARY"
+    collect_binary "$name" "compatible (abidiff-change)"
 
   else
     errs=$((errs+1))
     echo "::error::Unknown exit code ${rc} for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌ Error | Unknown rc=${rc}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Error | Unknown rc=${rc}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   fi
 done < "$manifest"
 
 {
   echo ""
-  echo "**Totals**: ${total} checked → ✅ ${ok} compatible, ⚠️ ${changed_review} ABI changed (review required), ❌ ${changed_incompat} incompatible, ❗ ${errs} errors"
+  echo "**Totals**: ${total} checked → ✅ ${ok} compatible(no-diff), ✅ ${changed_abi} compatible (diff-change), ❌ ${changed_incompat} incompatible, ❗ ${errs} errors"
 } >> "$SUMMARY"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
     echo "abi_total=${total}"
     echo "abi_ok=${ok}"
-    echo "abi_changed=${changed_review}"
+    echo "abi_changed=${changed_abi}"
     echo "abi_incompatible=${changed_incompat}"
     echo "abi_errors=${errs}"
   } >> "$GITHUB_OUTPUT"
 fi
 
+
 result="pass"
-case "${policy}" in
-  strict)        (( errs>0 || changed_incompat>0 || changed_review>0 )) && result="fail" ;;
-  incompat-only) (( errs>0 || changed_incompat>0 )) && result="fail" ;;
-  *)             (( errs>0 || changed_incompat>0 )) && result="fail" ;;
-esac
+# Fail only if we had internal errors or any incompatible changes
+if (( errs > 0 || changed_incompat > 0 )); then
+  result="fail"
+fi
+
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "abi_result=${result}" >> "$GITHUB_OUTPUT"
