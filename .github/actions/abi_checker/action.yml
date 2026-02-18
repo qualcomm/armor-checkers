@@ -227,7 +227,7 @@
           if [[ $rc -ne 0 ]]; then
             echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
           fi
-  
+
       - name: Run build script (Head/PR)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
@@ -294,9 +294,7 @@
           set -euo pipefail
           manifest="$GITHUB_WORKSPACE/abi_manifest.tsv"
           reports_dir="$GITHUB_WORKSPACE/abichecker_reports"
-          # policy can be: incompat-only or strict
-          policy="strict"
-          bash "${{ github.action_path }}/scripts/run_abi_checks.sh" "$manifest" "$reports_dir" "$policy"
+          bash "${{ github.action_path }}/scripts/run_abi_checks.sh" "$manifest" "$reports_dir"
       
       - name: Upload abidiff reports
         if: ${{ steps.run-abi.outputs.abi_result != '' }}

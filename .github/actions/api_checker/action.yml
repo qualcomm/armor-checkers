@@ -351,11 +351,9 @@ runs:
 
         body="$(cat <<'EOF'
         ### ARMOR Check Result
-        **Status:** __STATUS__
         Please check __ARTIFACTS__ for details.
         EOF
         )"
-        body="${body/__STATUS__/${status}}"
         body="${body/__ARTIFACTS__/${artifacts}}"
 
         # Segregated incompatible lists
@@ -391,7 +389,7 @@ runs:
         status="${{ steps.compatibility_status.outputs.res }}"
         printf '%s\n' "${{ steps.prepare-comment.outputs.body }}" >> "$GITHUB_STEP_SUMMARY"
         if [[ "$status" == "failure" ]]; then
-          echo "::error ::ARMOR detected backward incompatible changes in blocking headers. Failing the check."
+          echo "::error ::ARMOR detected backward incompatible changes in public headers. Failing the check."
           exit 1
         else
           echo "ARMOR check passed (status: $status)."
