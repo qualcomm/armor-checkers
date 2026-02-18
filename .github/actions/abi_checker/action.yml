@@ -202,44 +202,31 @@
           fi
           echo "${ver}"
 
+      - name: Export debug flags for DWARF
+        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' }}
+        shell: bash
+        run: |
+          echo 'CFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
+          echo 'CXXFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
+
       - name: Run build script (Base)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
         working-directory: base
         env:
-          # Paths must match your checkout steps below
-          BASE_DIR: ${{ github.workspace }}/base
-          HEAD_DIR: ${{ github.workspace }}/head
-
-          # Inputs / params you already use
-          BUILD_SCRIPT: ${{ inputs.build-script }}      # e.g., ci/build.sh (relative to repo root)
-
-          # Your debug-friendly flags
-          CFLAGS: -g -Og -fno-eliminate-unused-debug-types
-          CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
+          BUILD_SCRIPT: ${{ inputs.build-script }}
         run: |
           set -euo pipefail
-          echo ">>> pwd: $(pwd)"
-          echo ">>> BASE_DIR=$BASE_DIR"
-          echo ">>> HEAD_DIR=$HEAD_DIR"
-          SCRIPT="$HEAD_DIR/$BUILD_SCRIPT"
-          echo ">>> Expecting build script at: $SCRIPT"
+          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+          echo ">>> Running base build using $SCRIPT"
 
-
-          # Run their script with the environment it expects:
-          # - GITHUB_WORKSPACE must be the HEAD repo root
-          # - preserve your flags; their script may or may not use them
-          echo ">>> Running partner build with GITHUB_WORKSPACE=$HEAD_DIR"
-          if ! \
-            GITHUB_WORKSPACE="$BASE_DIR" \
-            CFLAGS="${CFLAGS:-}" \
-            CXXFLAGS="${CXXFLAGS:-}" \
-            bash "$SCRIPT"
-          then
+          cp "$SCRIPT" ./build_script.sh
+          chmod +x ./build_script.sh
+          ./build_script.sh
+          rc=$?
+          if [[ $rc -ne 0 ]]; then
             echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
           fi
-
 
       - name: Run build script (Head/PR)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
@@ -247,15 +234,12 @@
         working-directory: head
         env:
           BUILD_SCRIPT: ${{ inputs.build-script }}
-          GITHUB_WORKSPACE: ${{ github.workspace }}/head
-          CFLAGS:  -g -Og -fno-eliminate-unused-debug-types
-          CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
         run: |
           set -euo pipefail
-          SCRIPT="${GITHUB_WORKSPACE}/${BUILD_SCRIPT}"
-          echo ">>> Running head build using script at $SCRIPT"
+          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+          echo ">>> Running head build using $SCRIPT"
           bash "$SCRIPT"
-          rc=$? || true
+          rc=$?
           if [[ $rc -ne 0 ]]; then
             echo "Head build failed" >> "$GITHUB_STEP_SUMMARY"
           fi

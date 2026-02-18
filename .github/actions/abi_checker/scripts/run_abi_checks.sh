@@ -268,7 +268,6 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   rc=$?
   set -e
 
-  # ---- NEW: parse "Functions/Variables changes summary" from abidiff output ----
   func_removed=0; func_changed=0; var_removed=0; var_changed=0
   func_line="$(grep -E '^[[:space:]]*Functions changes summary:' -m1 "$out_file" || true)"
   var_line="$(grep -E '^[[:space:]]*Variables changes summary:' -m1 "$out_file" || true)"
@@ -287,7 +286,6 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   if (( rc == 4 )) && (( func_removed>0 || func_changed>0 || var_removed>0 || var_changed>0 )); then
     summary_rc4_incompat=1
   fi
-  # ---------------------------------------------------------------------------
 
   # Decode rc bits
   ABIDIFF_ERROR=1
