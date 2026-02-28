@@ -213,7 +213,7 @@
           SCRIPT="$HEAD_DIR/$BUILD_SCRIPT"
           echo ">>> Expecting build script at: $SCRIPT"
 
-          echo ">>> Running partner build with GITHUB_WORKSPACE=$HEAD_DIR"
+          echo ">>> Running partner build with GITHUB_WORKSPACE=$BASE_DIR"
           if ! \
             GITHUB_WORKSPACE="$BASE_DIR" \
             CFLAGS="${CFLAGS:-}" \
