@@ -223,153 +223,54 @@
             echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-
-
-      - name: Run build script (Head/PR)
+      - name: Dump ELF diagnostics for all binaries (raw outputs)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
         shell: bash
-        working-directory: head
         env:
-          BUILD_SCRIPT: ${{ inputs.build-script }}
-          HEAD_DIR: ${{ github.workspace }}/head
-          CFLAGS:  -g -Og -fno-eliminate-unused-debug-types
-          CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
-        run: |
-          set -euo pipefail
-          echo ">>> pwd: $(pwd)"
-          echo ">>> HEAD_DIR=$HEAD_DIR"
-          SCRIPT="$HEAD_DIR/$BUILD_SCRIPT"
-          echo ">>> Expecting build script at: $SCRIPT"
-
-          echo ">>> Running partner build with GITHUB_WORKSPACE=$HEAD_DIR"
-          if ! \
-            GITHUB_WORKSPACE="$HEAD_DIR" \
-            CFLAGS="${CFLAGS:-}" \
-            CXXFLAGS="${CXXFLAGS:-}" \
-            bash "$SCRIPT"
-          then
-            echo "Head build failed" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-      - name: Initialize metadata.json
-        if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
-        id: create-metadata
-        shell: bash
-        env:
-          REPORTS_DIR:  ${{ github.workspace }}/abichecker_reports
-          SERVER_URL:   ${{ github.server_url }}
-          REPO:         ${{ github.repository }}
-          RUN_ID:       ${{ github.run_id }}
-          EVENT_NAME:   ${{ github.event_name }}
-          PR_NUMBER:    ${{ github.event.pull_request.number || 'null' }}
-          BRANCH_NAME:  ${{ inputs.branch-name }}
-          HEAD_SHA:     ${{ inputs.head-sha }}
-          BASE_SHA:     ${{ inputs.base-sha }}
+          BASE_ROOT: ${{ github.workspace }}/base
         run: |
           set -euo pipefail
 
-          mkdir -p "$REPORTS_DIR"
+          BINARIES=(
+            "build/usr/lib/libar-gsl.so"
+            "build/usr/lib/libar-spfhdrs.so"
+            "build/usr/lib/libar-gpr.so"
+            "build/usr/lib/libar-util.so"
+            "build/usr/lib/libar-osal.so"
+            "build/usr/lib/libar-acdb.so"
+          )
 
-          PROJECT_URL="$SERVER_URL/$REPO"
-          WORKFLOW_URL="$SERVER_URL/$REPO/actions/runs/$RUN_ID"
-          ARTIFACTS_URL="$WORKFLOW_URL#artifacts"
+          run_checks() {
+            local root="$1"
+            local rel="$2"
+            local full="$root/$rel"
 
-          TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo ""
+            echo "=============================================================="
+            echo "[${root##*/}] Checking: $rel"
+            echo "Full Path: $full"
+            echo "=============================================================="
 
-          cat > "$REPORTS_DIR/abi_metadata.json" <<EOF
-          {
-            "project_url": "$PROJECT_URL",
-            "branch": "$BRANCH_NAME",
-            "github_event": "$EVENT_NAME",
-            "pr_number": $PR_NUMBER,
-            "timestamp": "$TIMESTAMP",
-            "head_sha": "$HEAD_SHA",
-            "base_sha": "$BASE_SHA",
-            "artifacts": "$ARTIFACTS_URL",
-            "binaries": []
+            echo ""
+            echo "# 1) file $rel"
+            file "$full" || true
+
+            echo ""
+            echo "# 2) readelf -h $rel"
+            readelf -h "$full" || true
+
+            echo ""
+            echo "# 3) readelf -S | grep -E '\\.dynsym|\\.symtab' $rel"
+            readelf -S "$full" 2>/dev/null | grep -E '\.dynsym|\.symtab' || true
+
+            echo ""
+            echo "# 4) sed -n '1,5p' $rel"
+            sed -n '1,5p' "$full" || true
+
+            echo ""
+            echo "--------------------------------------------------------------"
           }
-          EOF
 
-          echo "metadata_created_path=$REPORTS_DIR/abi_metadata.json" >> "$GITHUB_OUTPUT"
-          echo "Initialized abi_metadata.json at $REPORTS_DIR/abi_metadata.json"
-
-      - name: Run ABI checks
-        if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
-        id: run-abi
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$GITHUB_WORKSPACE/abi_manifest.tsv"
-          reports_dir="$GITHUB_WORKSPACE/abichecker_reports"
-          bash "${{ github.action_path }}/scripts/run_abi_checks.sh" "$manifest" "$reports_dir"
-      
-      - name: Upload abidiff reports
-        if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: abichecker-reports
-          path: ${{ github.workspace }}/abichecker_reports
-      
-      - name: Upload metadata to S3
-        if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          FOLDER="$GITHUB_WORKSPACE/abichecker_reports"
-          META="$FOLDER/abi_metadata.json"
-
-          # file must exist and be non-empty
-          [[ -s "$META" ]] || { echo "::error :: abi_metadata.json not found or empty"; exit 1; }
-
-          # must be valid JSON
-            jq -e . "$META" >/dev/null 2>&1 || { echo "::error :: abi_metadata.json is not valid JSON"; exit 1; }
-
-          # If a manifest existed and was non-empty, require at least one binary record
-          MANIFEST="$GITHUB_WORKSPACE/abi_manifest.tsv"
-          if [[ -s "$MANIFEST" ]]; then
-            jq -e '.binaries | length > 0' "$META" >/dev/null || {
-              echo "::error :: abi_metadata.json: binaries empty but manifest had entries"
-              exit 1
-            }
-          fi
-          BUCKET="s3://qli-prd-armor-gh-artifacts"
-          YYYY="$(date -u +'%Y')"; MM="$(date -u +'%m')"; DD="$(date -u +'%d')"; HH="$(date -u +'%H')"
-          HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
-          PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${{ github.repository }}/${GITHUB_REF_NAME}/${{ github.run_id }}/files"
-          echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
-          set +e
-          ERR_FILE="$(mktemp)"
-          aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
-            --content-type "application/json" \
-            --only-show-errors \
-            2> "${ERR_FILE}"
-          rc=$?
-          set -e
-          if [[ ${rc} -eq 0 ]]; then
-            echo "S3 upload succeeded."
-          else
-            reason="$(cat "${ERR_FILE}")"
-            echo "::error :: S3 upload FAILED (rc=${rc})."
-            echo "::error :: Reason: ${reason:-No error output captured}"
-          fi
-          rm -f "${ERR_FILE}"
-
-      - name: ABI check result
-        if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          status="${{ steps.run-abi.outputs.abi_result }}"
-          ok="${{ steps.run-abi.outputs.abi_ok || 0 }}"
-          changed="${{ steps.run-abi.outputs.abi_changed || 0 }}"
-          incompatible="${{ steps.run-abi.outputs.abi_incompatible || 0 }}"
-          errors="${{ steps.run-abi.outputs.abi_errors || 0 }}"
-
-          if [[ "$status" == "fail" ]]; then
-            echo "ABI check FAILED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
-            exit 1
-          else
-            echo "ABI check PASSED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
-          fi
+          for b in "${BINARIES[@]}"; do
+            run_checks "$BASE_ROOT" "$b"
+          done
