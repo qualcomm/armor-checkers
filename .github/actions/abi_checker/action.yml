@@ -1,367 +1,485 @@
+name: "Run ABI checks"
+description: "ABI compatiblity validation"
+branding:
+  icon: "align-left"
+  color: "blue"
 
-  name: "Run ABI checks"
-  description: "Run ABI checks"
-  branding:
-    icon: "align-left"
-    color: "blue"
+inputs:
+  event-name:
+    description: "github.event_name from the caller"
+    required: true
+  head-sha:
+    description: "Head SHA for the event"
+    required: true
+  base-sha:
+    description: "Base SHA for the event"
+    required: true
+  ref:
+    description: "Ref associated with the event"
+    required: false
+    default: ""
+  repo:
+    description: "owner/repo of the caller"
+    required: false
+    default: ""
+  branch-name:
+    description: "Branch name for the event"
+    required: true
+  build-script:
+    description: "Build script to build the project"
+    required: true
+  enable-artifact-reuse:
+    description: "Try to use artifacts from S3 for base/head SHAs"
+    required: false
+    default: "true"
+  producer-workflow:
+    description: "Workflow file that produced artifacts (e.g., pr.yml, build.yml)"
+    required: false
+  artifact-filename:
+    description: "Artifact filename stored per run (e.g., build_artifacts.tar.gz)"
+    required: false
+  s3-bucket:
+    description: "S3 bucket that stores artifacts (leave empty to skip reuse)"
+    required: false
+    default: ""
 
-  inputs:
-    event-name:
-      description: "github.event_name from the caller"
-      required: true
-    head-sha:
-      description: "Head SHA for the event"
-      required: true
-    base-sha:
-      description: "Base SHA for the event"
-      required: false
-      default: ""
-    ref:
-      description: "Ref associated with the event"
-      required: false
-      default: ""
-    repo:
-      description: "owner/repo of the caller"
-      required: false
-      default: ""
-    branch-name:
-      description: "Branch name for the event"
-      required: true
-    build-script:
-      description: "Build script to build the project"
-      required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout base commit
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.base-sha }}
+        path: base
+        fetch-depth: 0
 
-  runs:
-    using: "composite"
-    steps:
-      - name: Checkout base commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.base-sha }}
-          path: base
-          fetch-depth: 0
+    - name: Checkout head commit
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.head-sha }}
+        path: head
+        fetch-depth: 0
 
-      - name: Checkout head commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.head-sha }}
-          path: head
-          fetch-depth: 0
+    - name: Echo paths and SHAs
+      shell: bash
+      env:
+        EVENT_NAME: ${{ inputs.event-name }}
+        BASE_SHA:   ${{ inputs.base-sha }}
+        HEAD_SHA:   ${{ inputs.head-sha }}
+      run: |
+        echo "Event        : $EVENT_NAME"
+        echo "Base SHA     : $BASE_SHA"
+        echo "Head SHA     : $HEAD_SHA"
+        echo "github-base path  : $GITHUB_WORKSPACE/base"
+        echo "github-head path  : $GITHUB_WORKSPACE/head"
 
-      - name: Echo paths and SHAs
-        shell: bash
-        env:
-          EVENT_NAME: ${{ inputs.event-name }}
-          BASE_SHA:   ${{ inputs.base-sha }}
-          HEAD_SHA:   ${{ inputs.head-sha }}
-        run: |
-          echo "Event        : $EVENT_NAME"
-          echo "Base SHA     : $BASE_SHA"
-          echo "Head SHA     : $HEAD_SHA"
-          echo "github-base path  : $GITHUB_WORKSPACE/base"
-          echo "github-head path  : $GITHUB_WORKSPACE/head"
+    - name: Install yq
+      id: install-yq
+      shell: bash
+      run: |
+        set -e
+        echo "yq-installed=false" >> "$GITHUB_OUTPUT"
+        if command -v yq >/dev/null 2>&1; then
+          echo "yq already present: $(yq --version || true)"
+          echo "yq-installed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        sudo apt-get update -y
+        sudo apt-get install -y jq
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64|amd64)   yq_asset="yq_linux_amd64" ;;
+          aarch64|arm64)  yq_asset="yq_linux_arm64" ;;
+          armv7l|armv7)   yq_asset="yq_linux_arm" ;;
+          *) echo "::warning::Unsupported arch for yq: $arch"; exit 0 ;;
+        esac
+        sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v4.44.3/${yq_asset}"
+        sudo chmod +x /usr/local/bin/yq
+        echo "Installed yq: $(/usr/local/bin/yq --version 2>&1)"
+        if ! /usr/local/bin/yq --version >/dev/null 2>&1; then
+          echo "::warning::yq installed but version check failed." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        else
+          echo "yq-installed=true" >> "$GITHUB_OUTPUT"
+        fi
 
-      - name: Verify gcc and Docker installation
-        shell: bash
-        run: |
-          set -e
-          gcc --version || { echo "gcc missing"; exit 1; }
-          docker --version || { echo "docker missing"; exit 1; }
+    - name: Detect abi_checks section
+      if: ${{ steps.install-yq.outputs.yq-installed == 'true' }}
+      id: detect-abi
+      shell: bash
+      run: |
+        set -euo pipefail
+        CONFIG="$GITHUB_WORKSPACE/head/public_headers/config.yml"
+        if [[ ! -f "$CONFIG" ]]; then
+          echo "configuration file (public_headers/config.yml) not found. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
+          echo "has-abi-checks=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if yq -e '.abi_checks' "$CONFIG" >/dev/null 2>&1; then
+          echo "has-abi-checks=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-abi-checks=false" >> "$GITHUB_OUTPUT"
+          echo "abi_checks section not found in public_headers/config.yml — skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
 
-      - name: Install yq
-        id: install-yq
-        shell: bash
-        run: |
-          set -e
+    - name: Parse ABI config
+      if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
+      id: abi-parse
+      shell: bash
+      run: |
+        set -euo pipefail
+        bash "${{ github.action_path }}/scripts/parse-abi-config.sh" \
+          --config "$GITHUB_WORKSPACE/head/public_headers/config.yml" \
+          --head-root "$GITHUB_WORKSPACE/head" \
+          --base-root "$GITHUB_WORKSPACE/base" \
+          --out "$GITHUB_WORKSPACE/abi_manifest.tsv"
 
-          # Default output
-          echo "yq-installed=false" >> "$GITHUB_OUTPUT"
-
-          # If yq already present, mark installed and exit
-          if command -v yq >/dev/null 2>&1; then
-            echo "yq already present: $(yq --version || true)"
-            echo "yq-installed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Install prereqs
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-
-          # Determine correct yq asset based on architecture
-          arch="$(uname -m)"
-          case "$arch" in
-            x86_64|amd64)   yq_asset="yq_linux_amd64" ;;
-            aarch64|arm64)  yq_asset="yq_linux_arm64" ;;
-            armv7l|armv7)   yq_asset="yq_linux_arm" ;;
-            *)
-              echo "::warning::Unsupported architecture for yq: $arch. Skipping yq install."
-              exit 0
-              ;;
-          esac
-
-          # Download and install yq
-          sudo wget -qO /usr/local/bin/yq \
-            "https://github.com/mikefarah/yq/releases/download/v4.44.3/${yq_asset}"
-          sudo chmod +x /usr/local/bin/yq
-
-          echo "Installed yq: $(/usr/local/bin/yq --version 2>&1)"
-
-          if ! /usr/local/bin/yq --version >/dev/null 2>&1; then
-            echo "::warning::yq installed but version check failed." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          else
-            echo "yq-installed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Verify build script exists
-        id: verify-build-script
-        shell: bash
-        env:
-          BUILD_SCRIPT: ${{ inputs.build-script }}
-        run: |
-          set -euo pipefail
-          SCRIPT_PATH="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
-          echo "Checking for build script: $SCRIPT_PATH"
-
-          if [[ ! -f "$SCRIPT_PATH" ]]; then
-            echo "script_valid=false" >> "$GITHUB_OUTPUT"
-            echo "Build script not found at: $BUILD_SCRIPT. skipping ABI checks."
-            exit 0
-          fi
-
-          chmod +x "$SCRIPT_PATH"
-          echo "script_valid=true" >> "$GITHUB_OUTPUT"
-      
-      - name: Detect abi_checks section
-        if: ${{ steps.install-yq.outputs.yq-installed == 'true' }}
-        id: detect-abi
-        shell: bash
-        run: |
-          set -euo pipefail
-          CONFIG="$GITHUB_WORKSPACE/head/public_headers/config.yml"
-          if [[ ! -f "$CONFIG" ]]; then
-            echo "configuration file (public_headers/config.yml) not found. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
-            echo "has-abi-checks=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if yq -e '.abi_checks' "$CONFIG" >/dev/null 2>&1; then
-            echo "has-abi-checks=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-abi-checks=false" >> "$GITHUB_OUTPUT"
-            echo "No abi_checks section found. Skipping ABI checks."
-            echo "abi_checks section not found in public_headers/config.yml — skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-      - name: Parse ABI config
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
-        id: abi-parse
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash "${{ github.action_path }}/scripts/parse-abi-config.sh" \
-            --config "$GITHUB_WORKSPACE/head/public_headers/config.yml" \
-            --head-root "$GITHUB_WORKSPACE/head" \
-            --base-root "$GITHUB_WORKSPACE/base" \
-            --out "$GITHUB_WORKSPACE/abi_manifest.tsv"
-
-      - name: Check if ABI manifest has content
-        id: abi-check
-        shell: bash
-        run: |
-          set -euo pipefail
+    - name: Check if ABI manifest has content
+      id: abi-check
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "abi-ready=false" >> "$GITHUB_OUTPUT"
+        FILE="$GITHUB_WORKSPACE/abi_manifest.tsv"
+        if [[ ! -s "$FILE" ]]; then
           echo "abi-ready=false" >> "$GITHUB_OUTPUT"
-          FILE="$GITHUB_WORKSPACE/abi_manifest.tsv"
-
-          if [[ ! -s "$FILE" ]]; then
-            echo "abi-ready=false" >> "$GITHUB_OUTPUT"
-            if [[ "${{ steps.detect-abi.outputs.has-abi-checks }}" == "true" ]]; then
-                echo "abi_checks section exists in config.yml but resolved to **0 binaries**. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
-            fi
-            exit 0
+          if [[ "${{ steps.detect-abi.outputs.has-abi-checks }}" == "true" ]]; then
+            echo "abi_checks exists but resolved to **0 binaries**. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
           fi
+          exit 0
+        fi
+        echo "ABI manifest is non-empty."
+        echo "abi-ready=true" >> "$GITHUB_OUTPUT"
+        cat "$FILE"
 
-          echo "ABI manifest is non-empty."
-          echo "abi-ready=true" >> "$GITHUB_OUTPUT"
-          cat "$FILE"
+    # ---------- check artifacts for commits ----------
+    - name: Resolve base producing run (by SHA)
+      if: ${{ inputs.enable-artifact-reuse == 'true' && steps.abi-check.outputs.abi-ready == 'true' && inputs.base-sha != '' }}
+      id: base-run
+      env:
+        BASE_SHA: ${{ inputs.base-sha }}
+        PRODUCER_WORKFLOW: ${{ inputs.producer-workflow }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const wf   = "${PRODUCER_WORKFLOW}"
+          const base = "${BASE_SHA}"
+          const owner = context.repo.owner;
+          const repo  = context.repo.repo;
 
-      - name: Install abidiff (libabigail)
-        if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo ">>> Installing libabigail (abidiff)"
-          sudo apt-get update -y
-          sudo apt-get install -y abigail-tools
-          echo ">>> abidiff installed successfully"
-          ver="$(abidiff --version 2>&1 || true)"
-          if [[ -z "${ver}" ]]; then
-            echo "ERROR: abidiff produced no version output"
-            exit 1
-          fi
-          echo "${ver}"
+          if (!wf)  core.setFailed("Input 'producer_workflow' is empty.");
+          if (!base)  core.setFailed("Input 'base_sha' is empty.");
 
-      - name: Export debug flags for DWARF
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' }}
-        shell: bash
-        run: |
-          echo 'CFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
-          echo 'CXXFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
-
-      - name: Run build script (Base)
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
-        shell: bash
-        working-directory: base
-        env:
-          BUILD_SCRIPT: ${{ inputs.build-script }}
-        run: |
-          set -euo pipefail
-          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
-          echo ">>> Running base build using $SCRIPT"
-
-          cp "$SCRIPT" ./build_script.sh
-          chmod +x ./build_script.sh
-          ./build_script.sh
-          rc=$?
-          if [[ $rc -ne 0 ]]; then
-            echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Run build script (Head/PR)
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' }}
-        shell: bash
-        working-directory: head
-        env:
-          BUILD_SCRIPT: ${{ inputs.build-script }}
-        run: |
-          set -euo pipefail
-          SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
-          echo ">>> Running head build using $SCRIPT"
-          bash "$SCRIPT"
-          rc=$?
-          if [[ $rc -ne 0 ]]; then
-            echo "Head build failed" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Initialize metadata.json
-        if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
-        id: create-metadata
-        shell: bash
-        env:
-          REPORTS_DIR:  ${{ github.workspace }}/abichecker_reports
-          SERVER_URL:   ${{ github.server_url }}
-          REPO:         ${{ github.repository }}
-          RUN_ID:       ${{ github.run_id }}
-          EVENT_NAME:   ${{ github.event_name }}
-          PR_NUMBER:    ${{ github.event.pull_request.number || 'null' }}
-          BRANCH_NAME:  ${{ inputs.branch-name }}
-          HEAD_SHA:     ${{ inputs.head-sha }}
-          BASE_SHA:     ${{ inputs.base-sha }}
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$REPORTS_DIR"
-
-          PROJECT_URL="$SERVER_URL/$REPO"
-          WORKFLOW_URL="$SERVER_URL/$REPO/actions/runs/$RUN_ID"
-          ARTIFACTS_URL="$WORKFLOW_URL#artifacts"
-
-          TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-          cat > "$REPORTS_DIR/abi_metadata.json" <<EOF
-          {
-            "project_url": "$PROJECT_URL",
-            "branch": "$BRANCH_NAME",
-            "github_event": "$EVENT_NAME",
-            "pr_number": $PR_NUMBER,
-            "timestamp": "$TIMESTAMP",
-            "head_sha": "$HEAD_SHA",
-            "base_sha": "$BASE_SHA",
-            "artifacts": "$ARTIFACTS_URL",
-            "binaries": []
+          async function findRun(event) {
+            const res = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: wf, head_sha: head, event, per_page: 20
+            });
+            const runs = res.data.workflow_runs ?? [];
+            return runs.find(r => r.status === 'completed' && r.conclusion === 'success')
+                || runs.find(r => r.status === 'completed')
+                || runs[0];
           }
-          EOF
 
-          echo "metadata_created_path=$REPORTS_DIR/abi_metadata.json" >> "$GITHUB_OUTPUT"
-          echo "Initialized abi_metadata.json at $REPORTS_DIR/abi_metadata.json"
+          // Try push first, then pull_request for PR heads
+          let pick = await findRun('push');
+          if (!pick) {
+            pick = await findRun('pull_request');
+          }
+          if (!pick) {
+            core.info(`No producing run found for ${wf} at head_sha=${head}`);
+            core.setOutput('found', 'false');
+          } else {
+            core.info(`Found run_id=${pick.id}, attempt=${pick.run_attempt || 1} for head`);
+            core.setOutput('found', 'true');
+            core.setOutput('run_id', String(pick.id));
+            core.setOutput('run_attempt', String(pick.run_attempt || 1));
 
-      - name: Run ABI checks
-        if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
-        id: run-abi
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$GITHUB_WORKSPACE/abi_manifest.tsv"
-          reports_dir="$GITHUB_WORKSPACE/abichecker_reports"
-          bash "${{ github.action_path }}/scripts/run_abi_checks.sh" "$manifest" "$reports_dir"
-      
-      - name: Upload abidiff reports
-        if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: abichecker-reports
-          path: ${{ github.workspace }}/abichecker_reports
-      
-      - name: Upload metadata to S3
-        if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          FOLDER="$GITHUB_WORKSPACE/abichecker_reports"
-          META="$FOLDER/abi_metadata.json"
-
-          # file must exist and be non-empty
-          [[ -s "$META" ]] || { echo "::error :: abi_metadata.json not found or empty"; exit 1; }
-
-          # must be valid JSON
-            jq -e . "$META" >/dev/null 2>&1 || { echo "::error :: abi_metadata.json is not valid JSON"; exit 1; }
-
-          # If a manifest existed and was non-empty, require at least one binary record
-          MANIFEST="$GITHUB_WORKSPACE/abi_manifest.tsv"
-          if [[ -s "$MANIFEST" ]]; then
-            jq -e '.binaries | length > 0' "$META" >/dev/null || {
-              echo "::error :: abi_metadata.json: binaries empty but manifest had entries"
-              exit 1
-            }
-          fi
-          BUCKET="s3://qli-prd-armor-gh-artifacts"
-          YYYY="$(date -u +'%Y')"; MM="$(date -u +'%m')"; DD="$(date -u +'%d')"; HH="$(date -u +'%H')"
-          HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
-          PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${{ github.repository }}/${GITHUB_REF_NAME}/${{ github.run_id }}/files"
-          echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
-          set +e
-          ERR_FILE="$(mktemp)"
-          aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
-            --content-type "application/json" \
-            --only-show-errors \
-            2> "${ERR_FILE}"
-          rc=$?
-          set -e
-          if [[ ${rc} -eq 0 ]]; then
-            echo "S3 upload succeeded."
+    - name: Fetch base artifacts from S3
+      if: ${{ inputs.enable-artifact-reuse == 'true' && inputs.s3-bucket != '' && steps.abi-check.outputs.abi-ready == 'true' && steps.base-run.outputs.found == 'true' }}
+      id: fetch-base
+      shell: bash
+      env:
+        BUCKET: ${{ inputs.s3-bucket }}
+        FNAME:  ${{ inputs.artifact-filename }}
+      run: |
+        set -euo pipefail
+        OWNER="${GITHUB_REPOSITORY%/*}"
+        REPO="${GITHUB_REPOSITORY#*/}"
+        RID="${{ steps.base-run.outputs.run_id }}"
+        ATT="${{ steps.base-run.outputs.run_attempt }}"
+        SRC="s3://${BUCKET}/${OWNER}/${REPO}/${RID}-${ATT}/${FNAME}"
+        DST="$GITHUB_WORKSPACE/base"
+        echo "Attempting to download base artifacts: $SRC"
+        if aws s3 cp "$SRC" "$DST/"; then
+          FILE="$DST/$(basename "$FNAME")"
+          if [[ -f "$FILE" ]]; then
+            case "$FILE" in
+              *.tar.gz|*.tgz) tar -xzf "$FILE" -C "$DST" ;;
+              *.tar)          tar -xf  "$FILE" -C "$DST" ;;
+              *)              echo "Base artifact is not a tar archive; leaving as-is." ;;
+            esac
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "dir=$DST"   >> "$GITHUB_OUTPUT"
+            echo "Base artifacts fetched & extracted into $DST"
           else
-            reason="$(cat "${ERR_FILE}")"
-            echo "::error :: S3 upload FAILED (rc=${rc})."
-            echo "::error :: Reason: ${reason:-No error output captured}"
+            echo "found=false" >> "$GITHUB_OUTPUT"
           fi
-          rm -f "${ERR_FILE}"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Base artifacts not found or download failed."
+        fi
 
-      - name: ABI check result
-        if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          status="${{ steps.run-abi.outputs.abi_result }}"
-          ok="${{ steps.run-abi.outputs.abi_ok || 0 }}"
-          changed="${{ steps.run-abi.outputs.abi_changed || 0 }}"
-          incompatible="${{ steps.run-abi.outputs.abi_incompatible || 0 }}"
-          errors="${{ steps.run-abi.outputs.abi_errors || 0 }}"
+    - name: Resolve head producing run (by SHA)
+      if: ${{ inputs.enable-artifact-reuse == 'true' && inputs.head-sha != '' && steps.abi-check.outputs.abi-ready == 'true' }}
+      id: head-run
+      env:
+        HEAD_SHA: ${{ inputs.head-sha }}
+        PRODUCER_WORKFLOW: ${{ inputs.producer-workflow }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const wf   = "${PRODUCER_WORKFLOW}"
+          const head = "${HEAD_SHA}"
+          const owner = context.repo.owner;
+          const repo  = context.repo.repo;
 
-          if [[ "$status" == "fail" ]]; then
-            echo "ABI check FAILED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
+          if (!wf)  core.setFailed("Input 'producer_workflow' is empty.");
+          if (!base)  core.setFailed("Input 'head_sha' is empty.");
+
+          async function findRun(event) {
+            const res = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: wf, head_sha: head, event, per_page: 20
+            });
+            const runs = res.data.workflow_runs ?? [];
+            return runs.find(r => r.status === 'completed' && r.conclusion === 'success')
+                || runs.find(r => r.status === 'completed')
+                || runs[0];
+          }
+
+          // Try push first, then pull_request for PR heads
+          let pick = await findRun('push');
+          if (!pick) {
+            pick = await findRun('pull_request');
+          }
+          if (!pick) {
+            core.info(`No producing run found for ${wf} at head_sha=${head}`);
+            core.setOutput('found', 'false');
+          } else {
+            core.info(`Found run_id=${pick.id}, attempt=${pick.run_attempt || 1} for head`);
+            core.setOutput('found', 'true');
+            core.setOutput('run_id', String(pick.id));
+            core.setOutput('run_attempt', String(pick.run_attempt || 1));
+          }
+
+
+    - name: Fetch head artifacts from S3
+      if: ${{ inputs.enable-artifact-reuse == 'true' && inputs.s3-bucket != '' && steps.abi-check.outputs.abi-ready == 'true' && steps.head-run.outputs.found == 'true' }}
+      id: fetch-head
+      shell: bash
+      env:
+        BUCKET: ${{ inputs.s3-bucket }}
+        FNAME:  ${{ inputs.artifact-filename }}
+      run: |
+        set -euo pipefail
+        OWNER="${GITHUB_REPOSITORY%/*}"
+        REPO="${GITHUB_REPOSITORY#*/}"
+        RID="${{ steps.head-run.outputs.run_id }}"
+        ATT="${{ steps.head-run.outputs.run_attempt }}"
+        SRC="s3://${BUCKET}/${OWNER}/${REPO}/${RID}-${ATT}/${FNAME}"
+        DST="$GITHUB_WORKSPACE/head"
+        echo "Attempting to download head artifacts: $SRC"
+        if aws s3 cp "$SRC" "$DST/"; then
+          FILE="$DST/$(basename "$FNAME")"
+          if [[ -f "$FILE" ]]; then
+            case "$FILE" in
+              *.tar.gz|*.tgz) tar -xzf "$FILE" -C "$DST" ;;
+              *.tar)          tar -xf  "$FILE" -C "$DST" ;;
+              *)              echo "Head artifact is not a tar archive; leaving as-is." ;;
+            esac
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "dir=$DST"   >> "$GITHUB_OUTPUT"
+            echo "Head artifacts fetched & extracted into $DST"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Head artifacts not found or download failed."
+        fi
+    # ---------- End Artifact reuse ----------
+
+    - name: Install abidiff (libabigail)
+      if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo ">>> Installing libabigail (abidiff)"
+        sudo apt-get update -y
+        sudo apt-get install -y abigail-tools
+        echo ">>> abidiff installed successfully"
+        ver="$(abidiff --version 2>&1 || true)"
+        if [[ -z "${ver}" ]]; then
+          echo "ERROR: abidiff produced no version output"
+          exit 1
+        fi
+        echo "${ver}"
+
+    - name: Verify build script exists
+      id: verify-build-script
+      shell: bash
+      env:
+        BUILD_SCRIPT: ${{ inputs.build-script }}
+      run: |
+        set -euo pipefail
+        SCRIPT_PATH="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+        echo "Checking for build script: $SCRIPT_PATH"
+        if [[ ! -f "$SCRIPT_PATH" ]]; then
+          echo "script_valid=false" >> "$GITHUB_OUTPUT"
+          echo "Build script not found at: $BUILD_SCRIPT. skipping ABI checks."
+          exit 0
+        fi
+        chmod +x "$SCRIPT_PATH"
+        echo "script_valid=true" >> "$GITHUB_OUTPUT"
+
+    - name: Export debug flags for DWARF
+      if: ${{ steps.verify-build-script.outputs.script_valid == 'true' }}
+      shell: bash
+      run: |
+        echo 'CFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
+        echo 'CXXFLAGS=-g -Og -fno-eliminate-unused-debug-types' >> "$GITHUB_ENV"
+
+    - name: Run build script (Base)
+      if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' && (steps.fetch-base.outputs.found != 'true' || steps.fetch-base.outcome == 'skipped') }}
+      shell: bash
+      working-directory: base
+      env:
+        BUILD_SCRIPT: ${{ inputs.build-script }}
+      run: |
+        set -euo pipefail
+        SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+        echo ">>> Running base build using $SCRIPT"
+        cp "$SCRIPT" ./build_script.sh
+        chmod +x ./build_script.sh
+        ./build_script.sh || { echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+
+    - name: Run build script (Head/PR)
+      if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.abi-check.outputs.abi-ready == 'true' && (steps.fetch-head.outputs.found != 'true' || steps.fetch-head.outcome == 'skipped') }}
+      shell: bash
+      working-directory: head
+      env:
+        BUILD_SCRIPT: ${{ inputs.build-script }}
+      run: |
+        set -euo pipefail
+        SCRIPT="$GITHUB_WORKSPACE/head/$BUILD_SCRIPT"
+        echo ">>> Running head build using $SCRIPT"
+        bash "$SCRIPT" || { echo "Head build failed" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+
+    - name: Initialize metadata.json
+      if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
+      id: create-metadata
+      shell: bash
+      env:
+        REPORTS_DIR:  ${{ github.workspace }}/abichecker_reports
+        SERVER_URL:   ${{ github.server_url }}
+        REPO:         ${{ github.repository }}
+        RUN_ID:       ${{ github.run_id }}
+        EVENT_NAME:   ${{ github.event_name }}
+        PR_NUMBER:    ${{ github.event.pull_request.number || 'null' }}
+        BRANCH_NAME:  ${{ inputs.branch-name }}
+        HEAD_SHA:     ${{ inputs.head-sha }}
+        BASE_SHA:     ${{ inputs.base-sha }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$REPORTS_DIR"
+        PROJECT_URL="$SERVER_URL/$REPO"
+        WORKFLOW_URL="$SERVER_URL/$REPO/actions/runs/$RUN_ID"
+        ARTIFACTS_URL="$WORKFLOW_URL#artifacts"
+        TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        cat > "$REPORTS_DIR/abi_metadata.json" <<EOF
+        {
+          "project_url": "$PROJECT_URL",
+          "branch": "$BRANCH_NAME",
+          "github_event": "$EVENT_NAME",
+          "pr_number": $PR_NUMBER,
+          "timestamp": "$TIMESTAMP",
+          "head_sha": "$HEAD_SHA",
+          "base_sha": "$BASE_SHA",
+          "artifacts": "$ARTIFACTS_URL",
+          "binaries": []
+        }
+        EOF
+        echo "metadata_created_path=$REPORTS_DIR/abi_metadata.json" >> "$GITHUB_OUTPUT"
+        echo "Initialized abi_metadata.json at $REPORTS_DIR/abi_metadata.json"
+
+    - name: Run ABI checks
+      if: ${{ steps.abi-check.outputs.abi-ready == 'true' }}
+      id: run-abi
+      shell: bash
+      run: |
+        set -euo pipefail
+        manifest="$GITHUB_WORKSPACE/abi_manifest.tsv"
+        reports_dir="$GITHUB_WORKSPACE/abichecker_reports"
+        bash "${{ github.action_path }}/scripts/run_abi_checks.sh" "$manifest" "$reports_dir"
+
+    - name: Upload abidiff reports
+      if: ${{ steps.run-abi.outputs.abi_result != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: abichecker-reports
+        path: ${{ github.workspace }}/abichecker_reports
+
+    - name: Upload metadata to S3
+      if: ${{ steps.run-abi.outputs.abi_result != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        FOLDER="$GITHUB_WORKSPACE/abichecker_reports"
+        META="$FOLDER/abi_metadata.json"
+        [[ -s "$META" ]] || { echo "::error :: abi_metadata.json not found or empty"; exit 1; }
+        jq -e . "$META" >/dev/null 2>&1 || { echo "::error :: abi_metadata.json is not valid JSON"; exit 1; }
+        MANIFEST="$GITHUB_WORKSPACE/abi_manifest.tsv"
+        if [[ -s "$MANIFEST" ]]; then
+          jq -e '.binaries | length > 0' "$META" >/dev/null || {
+            echo "::error :: abi_metadata.json: binaries empty but manifest had entries"
             exit 1
-          else
-            echo "ABI check PASSED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
-          fi
+          }
+        fi
+        BUCKET="s3://qli-prd-armor-gh-artifacts"
+        YYYY="$(date -u +'%Y')"; MM="$(date -u +'%m')"; DD="$(date -u +'%d')"; HH="$(date -u +'%H')"
+        HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
+        PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${{ github.repository }}/${GITHUB_REF_NAME}/${{ github.run_id }}/files"
+        echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
+        set +e
+        ERR_FILE="$(mktemp)"
+        aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
+          --content-type "application/json" \
+          --only-show-errors \
+          2> "${ERR_FILE}"
+        rc=$?
+        set -e
+        if [[ ${rc} -eq 0 ]]; then
+          echo "S3 upload succeeded."
+        else
+          reason="$(cat "${ERR_FILE}")"
+          echo "::error :: S3 upload FAILED (rc=${rc})."
+          echo "::error :: Reason: ${reason:-No error output captured}"
+        fi
+        rm -f "${ERR_FILE}"
+
+    - name: ABI check result
+      if: ${{ steps.run-abi.outputs.abi_result != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        status="${{ steps.run-abi.outputs.abi_result }}"
+        ok="${{ steps.run-abi.outputs.abi_ok || 0 }}"
+        changed="${{ steps.run-abi.outputs.abi_changed || 0 }}"
+        incompatible="${{ steps.run-abi.outputs.abi_incompatible || 0 }}"
+        errors="${{ steps.run-abi.outputs.abi_errors || 0 }}"
+        if [[ "$status" == "fail" ]]; then
+          echo "ABI check FAILED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
+          exit 1
+        else
+          echo "ABI check PASSED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
+        fi
