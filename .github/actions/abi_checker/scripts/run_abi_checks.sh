@@ -288,6 +288,17 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     summary_rc4_incompat=1
   fi
 
+  # Decode rc bits
+  ABIDIFF_ERROR=1
+  ABIDIFF_USAGE_ERROR=2
+  ABIDIFF_ABI_CHANGE=4
+  ABIDIFF_ABI_INCOMPATIBLE_CHANGE=8
+
+  has_error=$(( rc & ABIDIFF_ERROR ))
+  has_usage=$(( rc & ABIDIFF_USAGE_ERROR ))
+  has_change=$(( rc & ABIDIFF_ABI_CHANGE ))
+  has_incompat=$(( rc & ABIDIFF_ABI_INCOMPATIBLE_CHANGE ))
+
   abi_category="error"
   if (( rc == 0 )); then
     abi_category="no-diff"
@@ -313,17 +324,6 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   head_ver="$VERSION_HEAD_VER"
   versioning_result="$VERSION_RESULT"
   versioning_reason="$VERSION_REASON"
-
-  # Decode rc bits
-  ABIDIFF_ERROR=1
-  ABIDIFF_USAGE_ERROR=2
-  ABIDIFF_ABI_CHANGE=4
-  ABIDIFF_ABI_INCOMPATIBLE_CHANGE=8
-
-  has_error=$(( rc & ABIDIFF_ERROR ))
-  has_usage=$(( rc & ABIDIFF_USAGE_ERROR ))
-  has_change=$(( rc & ABIDIFF_ABI_CHANGE ))
-  has_incompat=$(( rc & ABIDIFF_ABI_INCOMPATIBLE_CHANGE ))
 
   if (( rc == 0 )); then
     echo "No ABI differences detected." >>"$out_file"  
