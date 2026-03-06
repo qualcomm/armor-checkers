@@ -86,13 +86,13 @@ versioning_eval() {
 
     incompatible)
       if (( major_bumped )); then
-        result="PASS"; reason="Major++ as required for incompatible ABI"
+        result="PASS"; reason="Major version increased as required for incompatible ABI"
       elif (( minor_bumped )); then
-        result="FAIL"; reason="Minor++ but incompatible ABI requires Major++"
+        result="FAIL"; reason="Minor version increased but incompatible ABI requires a Major version increase"
       elif (( patch_bumped )); then
-        result="FAIL"; reason="Patch++ but incompatible ABI requires Major++"
+        result="FAIL"; reason="Patch version increased but incompatible ABI requires a Major version increase"
       elif (( no_bump )); then
-        result="FAIL"; reason="No bump; incompatible ABI requires Major++"
+        result="FAIL"; reason="No version change; incompatible ABI requires a Major version increase"
       else
         result="FAIL"; reason="Version regressed vs base"
       fi
@@ -101,13 +101,13 @@ versioning_eval() {
     compatible-additive)
       # Must be MAJOR same + MINOR++
       if (( head_Mj != base_Mj )); then
-        result="FAIL"; reason="Major changed; expected Minor++ only"
+        result="FAIL"; reason="Major version increased; compatible ABI change requires a Minor version increase"
       elif (( minor_bumped )); then
-        result="PASS"; reason="Minor++ for compatible ABI"
+        result="PASS"; reason="Minor version increased as required for a compatible ABI change"
       elif (( patch_bumped )); then
-        result="FAIL"; reason="Only patch++; need Minor++ for compatible ABI"
+        result="FAIL"; reason="Patch version increased but compatible ABI requires a Minor version increase"
       elif (( no_bump )); then
-        result="FAIL"; reason="No bump; compatible ABI requires Minor++"
+        result="FAIL"; reason="No version change; compatible ABI requires a Minor version increase"
       else
         result="FAIL"; reason="Version regressed vs base"
       fi

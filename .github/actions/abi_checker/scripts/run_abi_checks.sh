@@ -29,10 +29,14 @@ mkdir -p "$reports_dir"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 
 {
+
   echo "## ABI Compatibility & Versioning Report"
+  echo "> **Comparison:**"
+  echo "> Base = parent commit of the PR (before changes)"
+  echo "> Head = PR commit (after changes)"
   echo ""
 
-  echo "| Binary | ABI Result | Base SONAME | Head SONAME | Base Ver (M.m.p) | Head Ver (M.m.p) | Versioning Result | Versioning Reason | Notes |"
+  echo "| Binary | ABI Result | Base SONAME | Head SONAME | Base Version | Head Version | Versioning Result | Versioning Reason | Notes |"
   echo "|:-------|:-----------|:------------|:------------|:------------------|:------------------|:------------------|:-----------------|:------|"
 } >> "$SUMMARY"
 
@@ -368,17 +372,6 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     collect_binary "$name" "error"
   fi
 done < "$manifest"
-
-# {
-#   echo ""
-#   echo "**Totals**: ${total} checked → " \
-#        "✅ ${ok} compatible(no-diff), " \
-#        "✅ ${changed_abi} compatible(diff-change), " \
-#        "❌ ${changed_incompat} incompatible, " \
-#        "❗ ${errs} errors, " \
-#        "🚫 ${versioning_fails} versioning failures, " \
-#        "⚠️ ${versioning_warnings} versioning warnings"
-# } >> "$SUMMARY"
 
 {
   echo ""
