@@ -184,66 +184,56 @@ versioning_eval() {
     incompatible)
       # If SONAME is missing on either side, do not rely on fallback for gating -> FAIL
       if (( has_soname_base == 0 || has_soname_head == 0 )); then
-        result="FAIL"; reason="SONAME missing; cannot enforce Major↑ for ABI break"
+        result="FAIL"; reason="SONAME missing; cannot enforce Major version increase for ABI break"
         
       fi
 
       # Must be Major↑ (SONAME MAJOR)
       if (( major_bumped )); then
-        result="PASS"; reason="Major increased (ABI break)"
+        result="PASS"; reason="Major version increased as required for an incompatible ABI"
         if (( aligned_head_for_reset )); then
           # SemVer reset only if head has full filename triplet (we don't need M alignment here for display check)
           if [[ "$head_m" != "0" || "$head_p" != "0" ]]; then
             result="FAIL"
-            append_reason "SemVer: after Major↑ Minor=0 Patch=0 required (got ${head_M}.${head_m}.${head_p})"
+            append_reason "SemVer: after Major version increase, Minor and Patch must be 0 (got ${head_M}.${head_m}.${head_p})"
           fi
         else
           result="WARN"
           append_reason "SemVer reset not verifiable(missing minor/patch version)"
         fi
       elif (( minor_bumped )); then
-        result="FAIL"; reason="Minor↑ not allowed for ABI break (need Major↑)"
+        result="FAIL"; reason="Minor version increased, incompatible ABI requires a major version increase"
       elif (( patch_bumped )); then
-        result="FAIL"; reason="Patch↑ not allowed for ABI break (need Major↑)"
+        result="FAIL"; reason="Patch version increased, incompatible ABI requires a major version increase"
       elif (( no_bump )); then
-        result="FAIL"; reason="ABI break requires Major↑"
+        result="FAIL"; reason="Incompatible ABI requires a Major version increase"
       elif (( regressed )); then
-        result="FAIL"; reason="Version regressed"
+        result="FAIL"; reason="Version regressed vs base"
       fi
       ;;
 
     compatible-additive)
       # Must keep Major same (SONAME MAJOR)
       if (( head_Mj != base_Mj )); then
-        result="FAIL"; reason="Major↑ not allowed; additive requires Minor↑"
+        result="FAIL"; reason=" Major version increase not allowed; compatible ABI requires a Minor version increase"
       else
-        if (( can_enforce_minor )); then
+        if (( can_enforce_minor || fallback_can_enforce_minor )); then
           if (( minor_bumped )); then
-            result="PASS"; reason="Minor↑ (additive)"
+            result="PASS"; reason="Minor version increased as required for compatible ABI"
             # After Minor↑, if patch exists enforce reset to 0
             if [[ -n "$head_p" && "$head_p" != "0" ]]; then
               result="FAIL"
-              append_reason "SemVer: after Minor↑ Patch=0 required (got ${head_M}.${head_m}.${head_p})"
+              append_reason "SemVer: after Minor version increase, Patch must be 0 (got ${head_M}.${head_m}.${head_p})"
             fi
           elif (( patch_bumped )); then
-            result="FAIL"; reason="Patch↑ not allowed; need Minor↑"
+            result="FAIL"; reason="Patch version increase not allowed, compatible ABI requires a minor version increase"
           elif (( no_bump )); then
-            result="FAIL"; reason="Additive change requires Minor↑"
+            result="FAIL"; reason="compatible ABI requires a Minor version increase"
+          elif (( regressed )); then
+            result="FAIL"; reason="Version regressed vs base"
           else
             result="FAIL"; reason="Minor not increased for additive change"
           fi
-
-        elif (( fallback_can_enforce_minor )); then
-          # SONAME missing on one side, but filename M equal on both and m present -> enforce Minor++
-          if (( minor_bumped )); then
-            result="PASS"; reason="Minor↑ (additive; file-M context)"
-            if [[ -n "$head_p" && "$head_p" != "0" ]]; then
-              result="FAIL"; append_reason "SemVer: after Minor↑ Patch=0 required (got ${head_M}.${head_m}.${head_p})"
-            fi
-          else
-            result="FAIL"; reason="Additive change requires Minor↑"
-          fi
-
         else
           result="WARN"; reason="Minor not enforceable (missing SONAME or M mismatch)"
         fi
@@ -252,11 +242,13 @@ versioning_eval() {
 
     no-diff)
       if (( major_bumped || minor_bumped )); then
-        result="FAIL"; reason="ABI unchanged → Major/Minor bump not allowed"
+        result="FAIL"; reason="ABI unchanged → Major/Minor version bump not allowed"
       elif (( patch_bumped )); then
-        result="PASS"; reason="Patch↑ (bugfix)"
-      else
-          result="PASS"; reason="No change"
+        result="PASS"; reason="Increasing only the patch number while there is no ABI change seems reasonable"
+      elif (( no_bump )); then
+        result="✅&nbsp;PASS"; reason="ABI unchange, version unchanged"
+      elif (( regressed )); then
+        result="❌&nbsp;FAIL"; reason="Version regressed vs base"
       fi
       ;;
 
