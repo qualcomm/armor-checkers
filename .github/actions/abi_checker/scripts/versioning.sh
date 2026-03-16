@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 
+# --- Resolve to real ELF (absolute); return empty if not found ---
 real_elf() {
   local p="$1"
   if [[ -e "$p" ]]; then readlink -f "$p" || echo "$p"; else echo ""; fi
 }
 
+# --- Extract SONAME string from ELF (DT_SONAME), return empty if none ---
 get_soname() {
   local lib="$1"
   local s=""
@@ -15,48 +17,143 @@ get_soname() {
   echo "$s"
 }
 
+# --- Parse SONAME major (e.g., libX.so.3 -> 3); return empty if missing/unversioned ---
 soname_major() {
   local s="$1"
-  [[ "$s" =~ \.so\.([0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo "0"
+  [[ $s =~ \.so\.([0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo ""
 }
 
+# --- Extract filename version triplet .so.M[.m[.p]] ---
 file_triplet() {
   local b; b="$(basename -- "$1")"
-  local M=0 m=0 p=0
-  if [[ "$b" =~ \.so\.([0-9]+)(\.([0-9]+))?(\.([0-9]+))?$ ]]; then
+  local M="" m="" p=""
+  if [[ $b =~ \.so\.([0-9]+)(\.([0-9]+))?(\.([0-9]+))?$ ]]; then
     M="${BASH_REMATCH[1]}"
-    [[ -n "${BASH_REMATCH[3]:-}" ]] && m="${BASH_REMATCH[3]}"
-    [[ -n "${BASH_REMATCH[5]:-}" ]] && p="${BASH_REMATCH[5]}"
+    m="${BASH_REMATCH[3]:-}"
+    p="${BASH_REMATCH[5]:-}"
   fi
-  echo "$M $m $p"
+  printf '%s %s %s\n' "$M" "$m" "$p"
+}
+
+# --- Format version for display: N/A | M | M.m | M.m.p ---
+fmt_version_or_na() {
+  local M="$1" m="$2" p="$3"
+  if [[ -z "$M" && -z "$m" && -z "$p" ]]; then
+    echo "N/A"
+  elif [[ -n "$M" && -z "$m" && -z "$p" ]]; then
+    echo "$M"
+  elif [[ -n "$M" && -n "$m" && -z "$p" ]]; then
+    echo "${M}.${m}"
+  else
+    echo "${M}.${m}.${p}"
+  fi
+}
+
+# Append to reason cleanly with delimiter (newline)
+append_reason() {
+  local add="$1"
+  if [[ -n "${reason:-}" ]]; then
+    reason+=$'\n'"$add"
+  else
+    reason="$add"
+  fi
+}
+
+# Full-triplet boolean (1 if all present else 0)
+has_full_triplet() {
+  [[ -n "$1" && -n "$2" && -n "$3" ]] && echo 1 || echo 0
 }
 
 # ============================================================
 #   versioning_eval base head abi_category
+#   - base/head: paths (prefer resolved real ELF for parsing)
+#   - abi_category: incompatible | compatible-additive | no-diff
 # ============================================================
 versioning_eval() {
   local base="$1"
   local head="$2"
   local abi_cat="$3"
 
-  # --- resolve files ---
+  # --- Resolve real files ---
   local base_real head_real
   base_real="$(real_elf "$base")"
   head_real="$(real_elf "$head")"
 
-  # --- extract SONAME major ---
+  # --- SONAME + SONAME MAJOR (authoritative for ABI MAJOR) ---
   base_soname="$(get_soname "$base_real")"
   head_soname="$(get_soname "$head_real")"
-
   base_Mj="$(soname_major "$base_soname")"
   head_Mj="$(soname_major "$head_soname")"
 
-  # --- file M.m.p ---
+  # Presence of SONAME (used in fallback/enforcement rules)
+  has_soname_base=$([[ -n "$base_soname" ]] && echo 1 || echo 0)
+  has_soname_head=$([[ -n "$head_soname" ]] && echo 1 || echo 0)
+
+  # --- Filename triplet from the resolved real file (M.m.p) ---
   read base_M base_m base_p < <(file_triplet "$base_real")
   read head_M head_m head_p < <(file_triplet "$head_real")
 
-  # --- determine bumps ---
-  major_bumped=0 minor_bumped=0 patch_bumped=0 no_bump=0 regressed=0
+  # --- Fallback for missing SONAME MAJOR: derive from filename M with annotation ---
+  fell_back_major_base=0
+  fell_back_major_head=0
+  if [[ -z "$base_Mj" && -n "$base_M" ]]; then
+    base_Mj="$base_M"
+    fell_back_major_base=1
+  fi
+  if [[ -z "$head_Mj" && -n "$head_M" ]]; then
+    head_Mj="$head_M"
+    fell_back_major_head=1
+  fi
+
+  # --- Detect filename-M vs SONAME-M mismatches (for annotation & enforcement gating) ---
+  base_M_mismatch=0
+  head_M_mismatch=0
+  if [[ $has_soname_base -eq 1 && -n "$base_M" && "$base_Mj" != "$base_M" ]]; then
+    base_M_mismatch=1
+    append_reason "Base: filename-M (${base_M}) ≠ SONAME-M (${base_Mj}) — using SONAME"
+  fi
+  if [[ $has_soname_head -eq 1 && -n "$head_M" && "$head_Mj" != "$head_M" ]]; then
+    head_M_mismatch=1
+    append_reason "Head: filename-M (${head_M}) ≠ SONAME-M (${head_Mj}) — using SONAME"
+  fi
+
+  # Head alignment for SemVer reset in incompatible:
+  # needs head's filename M aligned with SONAME M AND head encodes both m/p
+  aligned_head_for_reset=$(
+    [[ -n "$head_Mj" && -n "$head_M" && "$head_Mj" == "$head_M" && -n "$head_m" && -n "$head_p" ]] && echo 1 || echo 0
+  )
+  # --- Decide if we can enforce MINOR/PATCH (SONAME present & aligned) ---
+  can_enforce_minor=$([[ -n "$base_m" && -n "$head_m" && $base_M_mismatch -eq 0 && $head_M_mismatch -eq 0 ]] && echo 1 || echo 0)
+  can_enforce_patch=$([[ -n "$base_p" && -n "$head_p" && $base_M_mismatch -eq 0 && $head_M_mismatch -eq 0 ]] && echo 1 || echo 0)
+
+  # --- Fallback-only enforcement for m/p: SONAME missing on either side, both filename-M present and equal ---
+  fallback_can_enforce_minor=$(
+    [[ $has_soname_base -eq 0 || $has_soname_head -eq 0 ]] &&
+    [[ -n "$base_M" && -n "$head_M" && "$base_M" == "$head_M" && -n "$base_m" && -n "$head_m" ]] && echo 1 || echo 0
+  )
+  fallback_can_enforce_patch=$(
+    [[ $has_soname_base -eq 0 || $has_soname_head -eq 0 ]] &&
+    [[ -n "$base_M" && -n "$head_M" && "$base_M" == "$head_M" && -n "$base_p" && -n "$head_p" ]] && echo 1 || echo 0
+  )
+
+  # --- Display version: SONAME M + m/p only if aligned (else just M); fallback to filename-only if SONAME missing ---
+  version_display() {
+    local Mj="$1" Mf="$2" m="$3" p="$4"
+    if [[ -z "$Mj" ]]; then
+      fmt_version_or_na "$Mf" "$m" "$p"
+    else
+      if [[ -n "$Mf" && "$Mf" == "$Mj" ]]; then
+        fmt_version_or_na "$Mj" "$m" "$p"
+      else
+        echo "$Mj"
+      fi
+    fi
+  }
+  VERSION_BASE_VER="$(version_display "$base_Mj" "$base_M" "$base_m" "$base_p")"
+  VERSION_HEAD_VER="$(version_display "$head_Mj" "$head_M" "$head_m" "$head_p")"
+
+  # --- Numeric-safe compares for bump detection (use SONAME MAJOR for all major math) ---
+    major_bumped=0 minor_bumped=0 patch_bumped=0 no_bump=0 regressed=0
 
   if (( head_Mj > base_Mj )); then
     major_bumped=1
@@ -78,49 +175,88 @@ versioning_eval() {
     fi
   fi
 
-  # --- policy decision ---
-  local result="FAIL"
-  local reason="(unset)"
+  # --- Policy evaluation ---
+  local result="WARN"
+  local reason=""
 
   case "$abi_cat" in
 
     incompatible)
+      # If SONAME is missing on either side, do not rely on fallback for gating -> FAIL
+      if (( has_soname_base == 0 || has_soname_head == 0 )); then
+        result="FAIL"; reason="SONAME missing; cannot enforce Major↑ for ABI break"
+        
+      fi
+
+      # Must be Major↑ (SONAME MAJOR)
       if (( major_bumped )); then
-        result="PASS"; reason="Major version increased as required for incompatible ABI"
+        result="PASS"; reason="Major increased (ABI break)"
+        if (( aligned_head_for_reset )); then
+          # SemVer reset only if head has full filename triplet (we don't need M alignment here for display check)
+          if [[ "$head_m" != "0" || "$head_p" != "0" ]]; then
+            result="FAIL"
+            append_reason "SemVer: after Major↑ Minor=0 Patch=0 required (got ${head_M}.${head_m}.${head_p})"
+          fi
+        else
+          result="WARN"
+          append_reason "SemVer reset not verifiable(missing minor/patch version)"
+        fi
       elif (( minor_bumped )); then
-        result="FAIL"; reason="Minor version increased but incompatible ABI requires a Major version increase"
+        result="FAIL"; reason="Minor↑ not allowed for ABI break (need Major↑)"
       elif (( patch_bumped )); then
-        result="FAIL"; reason="Patch version increased but incompatible ABI requires a Major version increase"
+        result="FAIL"; reason="Patch↑ not allowed for ABI break (need Major↑)"
       elif (( no_bump )); then
-        result="FAIL"; reason="No version change; incompatible ABI requires a Major version increase"
-      else
-        result="FAIL"; reason="Version regressed vs base"
+        result="FAIL"; reason="ABI break requires Major↑"
+      elif (( regressed )); then
+        result="FAIL"; reason="Version regressed"
       fi
       ;;
 
     compatible-additive)
-      # Must be MAJOR same + MINOR++
+      # Must keep Major same (SONAME MAJOR)
       if (( head_Mj != base_Mj )); then
-        result="FAIL"; reason="Major version increased; compatible ABI change requires a Minor version increase"
-      elif (( minor_bumped )); then
-        result="PASS"; reason="Minor version increased as required for a compatible ABI change"
-      elif (( patch_bumped )); then
-        result="FAIL"; reason="Patch version increased but compatible ABI requires a Minor version increase"
-      elif (( no_bump )); then
-        result="FAIL"; reason="No version change; compatible ABI requires a Minor version increase"
+        result="FAIL"; reason="Major↑ not allowed; additive requires Minor↑"
       else
-        result="FAIL"; reason="Version regressed vs base"
+        if (( can_enforce_minor )); then
+          if (( minor_bumped )); then
+            result="PASS"; reason="Minor↑ (additive)"
+            # After Minor↑, if patch exists enforce reset to 0
+            if [[ -n "$head_p" && "$head_p" != "0" ]]; then
+              result="FAIL"
+              append_reason "SemVer: after Minor↑ Patch=0 required (got ${head_M}.${head_m}.${head_p})"
+            fi
+          elif (( patch_bumped )); then
+            result="FAIL"; reason="Patch↑ not allowed; need Minor↑"
+          elif (( no_bump )); then
+            result="FAIL"; reason="Additive change requires Minor↑"
+          else
+            result="FAIL"; reason="Minor not increased for additive change"
+          fi
+
+        elif (( fallback_can_enforce_minor )); then
+          # SONAME missing on one side, but filename M equal on both and m present -> enforce Minor++
+          if (( minor_bumped )); then
+            result="PASS"; reason="Minor↑ (additive; file-M context)"
+            if [[ -n "$head_p" && "$head_p" != "0" ]]; then
+              result="FAIL"; append_reason "SemVer: after Minor↑ Patch=0 required (got ${head_M}.${head_m}.${head_p})"
+            fi
+          else
+            result="FAIL"; reason="Additive change requires Minor↑"
+          fi
+
+        else
+          result="WARN"; reason="Minor not enforceable (missing SONAME or M mismatch)"
+        fi
       fi
       ;;
 
     no-diff)
-      # Must be no version change (you can relax to PASS on patch bump if you want)
-      if (( major_bumped || minor_bumped || patch_bumped )); then
-        result="FAIL"; reason="Version changed but no ABI change"
-      elif (( no_bump )); then
-        result="PASS"; reason="No ABI change, version unchanged"
+      if (( major_bumped || minor_bumped )); then
+        result="FAIL"; reason="ABI unchanged → Major/Minor bump not allowed"
+      elif (( patch_bumped )); then
+        result="PASS"; reason="Patch↑ (bugfix)"
       else
-        result="FAIL"; reason="Version regressed vs base"
+          result="PASS"; reason="No change"
       fi
       ;;
 
@@ -129,31 +265,25 @@ versioning_eval() {
       ;;
   esac
 
-  # --- missing SONAME handling ---
-  if [[ -z "$base_soname" || -z "$head_soname" ]]; then
-    case "$abi_cat" in
-      incompatible)
-        result="FAIL"
-        reason="SONAME missing; cannot verify required Major++"
-        ;;
-      compatible-additive|no-diff)
-        reason="$reason (SONAME missing; set SOVERSION)"
-        ;;
-    esac
+  # Annotate SONAME fallback
+  if (( fell_back_major_base || fell_back_major_head )); then
+    append_reason "MAJOR from filename due to missing SONAME"
   fi
 
-  # --- set globals for caller ---
-  VERSION_BASE_SONAME="$base_soname"
-  VERSION_HEAD_SONAME="$head_soname"
-  VERSION_BASE_VER="${base_M}.${base_m}.${base_p}"
-  VERSION_HEAD_VER="${head_M}.${head_m}.${head_p}"
+  # If both sides show no version encoding at all
+  if [[ "$VERSION_BASE_VER" == "N/A" && "$VERSION_HEAD_VER" == "N/A" ]]; then
+    result="WARN"
+    append_reason "Missing version encoding"
+  fi
+
+  # --- Export results ---
+  VERSION_BASE_SONAME="${base_soname:-N/A}"
+  VERSION_HEAD_SONAME="${head_soname:-N/A}"
   VERSION_RESULT="$result"
   VERSION_REASON="$reason"
 
-  # Optional TSV output:
+  # Optional TSV line for callers that capture stdout
   printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
-    "$VERSION_BASE_SONAME" \
-    "$VERSION_HEAD_SONAME" \
     "$VERSION_BASE_VER" \
     "$VERSION_HEAD_VER" \
     "$VERSION_RESULT" \
