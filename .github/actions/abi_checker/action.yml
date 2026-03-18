@@ -160,7 +160,7 @@
           sudo apt-get install -y abigail-tools
           echo ">>> abidiff installed successfully"
           ver="$(abidiff --version 2>&1 || true)"
-          abidiff_installed=true
+          echo "abidiff_installed=true" >> "$GITHUB_OUTPUT"
           if [[ -z "${ver}" ]]; then
             echo "ERROR: abidiff produced no version output"
             echo "abidiff_installed=false" >> "$GITHUB_OUTPUT"
@@ -176,7 +176,7 @@
           CFLAGS: -g -Og -fno-eliminate-unused-debug-types
           CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
           ABIDIFF_OK: ${{ steps.install-abi.outputs.abidiff_installed }}
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        if: ${{ env.ABIDIFF_OK == 'true' && steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
         shell: bash
         working-directory: base
         run: |
@@ -205,7 +205,7 @@
           CFLAGS:  -g -Og -fno-eliminate-unused-debug-types
           CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
           ABIDIFF_OK: ${{ steps.install-abi.outputs.abidiff_installed }}
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        if: ${{ env.ABIDIFF_OK == 'true' && steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
         shell: bash
         working-directory: head
         run: |
