@@ -188,15 +188,16 @@
           echo ">>> Expecting build script at: $SCRIPT"
 
           echo ">>> Running partner build with GITHUB_WORKSPACE=$BASE_DIR"
-          if ! \
-            GITHUB_WORKSPACE="$BASE_DIR" \
-            CFLAGS="${CFLAGS:-}" \
-            CXXFLAGS="${CXXFLAGS:-}" \
-            bash "$SCRIPT"
-          then
-            echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          exit 1
+          # if ! \
+          #   GITHUB_WORKSPACE="$BASE_DIR" \
+          #   CFLAGS="${CFLAGS:-}" \
+          #   CXXFLAGS="${CXXFLAGS:-}" \
+          #   bash "$SCRIPT"
+          # then
+          #   echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
+          #   exit 1
+          # fi
 
       - name: Run build script (Head/PR)
         env:
