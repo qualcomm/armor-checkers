@@ -188,16 +188,15 @@
           echo ">>> Expecting build script at: $SCRIPT"
 
           echo ">>> Running partner build with GITHUB_WORKSPACE=$BASE_DIR"
-          exit 1
-          # if ! \
-          #   GITHUB_WORKSPACE="$BASE_DIR" \
-          #   CFLAGS="${CFLAGS:-}" \
-          #   CXXFLAGS="${CXXFLAGS:-}" \
-          #   bash "$SCRIPT"
-          # then
-          #   echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
-          #   exit 1
-          # fi
+          if ! \
+            GITHUB_WORKSPACE="$BASE_DIR" \
+            CFLAGS="${CFLAGS:-}" \
+            CXXFLAGS="${CXXFLAGS:-}" \
+            bash "$SCRIPT"
+          then
+            echo "Base build failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Run build script (Head/PR)
         env:
@@ -240,6 +239,7 @@
             --out "$GITHUB_WORKSPACE/abi_manifest.tsv"
 
       - name: Check if ABI manifest has content
+        if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
         id: abi-check
         shell: bash
         run: |
