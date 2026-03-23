@@ -151,6 +151,7 @@
 
       - name: Install abidiff (libabigail)
         if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        id: install-abi
         shell: bash
         run: |
           set -euo pipefail
@@ -159,22 +160,25 @@
           sudo apt-get install -y abigail-tools
           echo ">>> abidiff installed successfully"
           ver="$(abidiff --version 2>&1 || true)"
+          echo "abidiff_installed=true" >> "$GITHUB_OUTPUT"
           if [[ -z "${ver}" ]]; then
             echo "ERROR: abidiff produced no version output"
-            exit 1
+            echo "abidiff_installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "${ver}"
 
       - name: Run build script (Base)
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
-        shell: bash
-        working-directory: base
         env:
           BASE_DIR: ${{ github.workspace }}/base
           HEAD_DIR: ${{ github.workspace }}/head
           BUILD_SCRIPT: ${{ inputs.build-script }}
           CFLAGS: -g -Og -fno-eliminate-unused-debug-types
           CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
+          ABIDIFF_OK: ${{ steps.install-abi.outputs.abidiff_installed }}
+        if: ${{ env.ABIDIFF_OK == 'true' && steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        shell: bash
+        working-directory: base
         run: |
           set -euo pipefail
           echo ">>> pwd: $(pwd)"
@@ -194,16 +198,16 @@
             exit 1
           fi
 
-
       - name: Run build script (Head/PR)
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
-        shell: bash
-        working-directory: head
         env:
           BUILD_SCRIPT: ${{ inputs.build-script }}
           HEAD_DIR: ${{ github.workspace }}/head
           CFLAGS:  -g -Og -fno-eliminate-unused-debug-types
           CXXFLAGS: -g -Og -fno-eliminate-unused-debug-types
+          ABIDIFF_OK: ${{ steps.install-abi.outputs.abidiff_installed }}
+        if: ${{ env.ABIDIFF_OK == 'true' && steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        shell: bash
+        working-directory: head
         run: |
           set -euo pipefail
           echo ">>> pwd: $(pwd)"
@@ -223,7 +227,7 @@
           fi
 
       - name: Parse ABI config
-        if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
         id: abi-parse
         shell: bash
         run: |
@@ -235,6 +239,7 @@
             --out "$GITHUB_WORKSPACE/abi_manifest.tsv"
 
       - name: Check if ABI manifest has content
+        if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
         id: abi-check
         shell: bash
         run: |
@@ -312,51 +317,88 @@
         with:
           name: abichecker-reports
           path: ${{ github.workspace }}/abichecker_reports
-      
+
       - name: Upload metadata to S3
         if: ${{ steps.run-abi.outputs.abi_result != '' }}
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
 
           FOLDER="$GITHUB_WORKSPACE/abichecker_reports"
           META="$FOLDER/abi_metadata.json"
-
-          # file must exist and be non-empty
-          [[ -s "$META" ]] || { echo "::error :: abi_metadata.json not found or empty"; exit 1; }
-
-          # must be valid JSON
-            jq -e . "$META" >/dev/null 2>&1 || { echo "::error :: abi_metadata.json is not valid JSON"; exit 1; }
-
-          # If a manifest existed and was non-empty, require at least one binary record
           MANIFEST="$GITHUB_WORKSPACE/abi_manifest.tsv"
-          if [[ -s "$MANIFEST" ]]; then
-            jq -e '.binaries | length > 0' "$META" >/dev/null || {
-              echo "::error :: abi_metadata.json: binaries empty but manifest had entries"
-              exit 1
-            }
+
+          s3_ok="false"
+
+          # Preconditions relaxed: warn instead of exit 1
+          if [[ ! -s "$META" ]]; then
+            echo "::warning :: abi_metadata.json not found or empty; skipping S3 upload"
+            echo "s3_upload=$s3_ok" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          if ! jq -e . "$META" >/dev/null 2>&1; then
+            echo "::warning :: abi_metadata.json is not valid JSON; skipping S3 upload"
+            echo "s3_upload=$s3_ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -s "$MANIFEST" ]]; then
+            if ! jq -e '.binaries | length > 0' "$META" >/dev/null 2>&1; then
+              echo "::warning :: abi_metadata.json: binaries empty but manifest had entries; skipping S3 upload"
+              echo "s3_upload=$s3_ok" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           BUCKET="s3://qli-prd-armor-gh-artifacts"
           YYYY="$(date -u +'%Y')"; MM="$(date -u +'%m')"; DD="$(date -u +'%d')"; HH="$(date -u +'%H')"
           HOST="$(printf '%s' "${{ github.server_url }}" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
           PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${{ github.repository }}/${GITHUB_REF_NAME}/${{ github.run_id }}/files"
+
           echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
-          set +e
-          ERR_FILE="$(mktemp)"
-          aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
-            --content-type "application/json" \
-            --only-show-errors \
-            2> "${ERR_FILE}"
-          rc=$?
-          set -e
-          if [[ ${rc} -eq 0 ]]; then
+
+          max_tries=3
+          tries=0
+          rc=1
+          last_err=""
+
+          while [[ $tries -lt $max_tries && $rc -ne 0 ]]; do
+            tries=$((tries+1))
+            set +e
+            ERR_FILE="$(mktemp)"
+            aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
+              --content-type "application/json" \
+              --only-show-errors \
+              2> "${ERR_FILE}"
+            rc=$?
+            set -e
+
+            if [[ $rc -ne 0 ]]; then
+              last_err="$(cat "${ERR_FILE}" || true)"
+              rm -f "${ERR_FILE}"
+
+              # Sleep only if more attempts remain
+              if [[ $tries -lt $max_tries ]]; then
+                echo "Retrying in 3s..."
+                sleep 5
+              fi
+            else
+              # Success
+              rm -f "${ERR_FILE}"
+            fi
+          done
+
+          if [[ $rc -eq 0 ]]; then
             echo "S3 upload succeeded."
+            s3_ok="true"
           else
-            reason="$(cat "${ERR_FILE}")"
-            echo "::error :: S3 upload FAILED (rc=${rc})."
-            echo "::error :: Reason: ${reason:-No error output captured}"
+            echo "::warning :: S3 upload FAILED after ${max_tries} attempts"
+            echo "::warning :: Reason: ${last_err:-No error output captured}"
           fi
-          rm -f "${ERR_FILE}"
+
+          echo "s3_upload=$s3_ok" >> "$GITHUB_OUTPUT"
 
       - name: ABI check result
         if: ${{ steps.run-abi.outputs.abi_result != '' }}

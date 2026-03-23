@@ -34,7 +34,7 @@ jobs:
       armor-checker-options: ${{ inputs.armor-checker-options }}
 
   armor-api-check:
-    name: Run ARMOR API Check
+    name: Run API Check
     needs: prepare
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
