@@ -405,6 +405,7 @@
         run: |
           set -euo pipefail
           status="${{ steps.run-abi.outputs.abi_result }}"
+          status="fail"
           ok="${{ steps.run-abi.outputs.abi_ok || 0 }}"
           changed="${{ steps.run-abi.outputs.abi_changed || 0 }}"
           incompatible="${{ steps.run-abi.outputs.abi_incompatible || 0 }}"
