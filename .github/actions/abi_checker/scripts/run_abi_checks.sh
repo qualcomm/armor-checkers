@@ -272,6 +272,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   set +e
   abidiff "${abidiff_argv[@]}" "$base_path" "$head_path" >>"$out_file" 2>&1
   rc=$?
+  rc=8
   set -e
 
   func_removed=0; func_changed=0; var_removed=0; var_changed=0
@@ -298,7 +299,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   ABIDIFF_USAGE_ERROR=2
   ABIDIFF_ABI_CHANGE=4
   ABIDIFF_ABI_INCOMPATIBLE_CHANGE=8
-
+  
   has_error=$(( rc & ABIDIFF_ERROR ))
   has_usage=$(( rc & ABIDIFF_USAGE_ERROR ))
   has_change=$(( rc & ABIDIFF_ABI_CHANGE ))
