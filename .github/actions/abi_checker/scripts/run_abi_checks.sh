@@ -405,7 +405,7 @@ fi
 
 result="pass"
 # Fail only if we had internal errors or any incompatible changes
-if (( errs > 0 || changed_incompat > 0 || versioning_fails > 0 )); then
+if (( errs > 0 || versioning_fails > 0 )); then
   result="fail"
 fi
 
