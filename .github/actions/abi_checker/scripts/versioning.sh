@@ -35,11 +35,11 @@ file_triplet() {
   printf '%s %s %s\n' "$M" "$m" "$p"
 }
 
-# --- Format version for display: N/A | M | M.m | M.m.p ---
+# --- Format version for display: Not Available | M | M.m | M.m.p ---
 fmt_version_or_na() {
   local M="$1" m="$2" p="$3"
   if [[ -z "$M" && -z "$m" && -z "$p" ]]; then
-    echo "N/A"
+    echo "Not Available"
   elif [[ -n "$M" && -z "$m" && -z "$p" ]]; then
     echo "$M"
   elif [[ -n "$M" && -n "$m" && -z "$p" ]]; then
@@ -246,9 +246,9 @@ versioning_eval() {
       elif (( patch_bumped )); then
         result="PASS"; reason="Increasing only the patch number while there is no ABI change seems reasonable"
       elif (( no_bump )); then
-        result="✅&nbsp;PASS"; reason="ABI unchange, version unchanged"
+        result="PASS"; reason="ABI unchange, version unchanged"
       elif (( regressed )); then
-        result="❌&nbsp;FAIL"; reason="Version regressed vs base"
+        result="FAIL"; reason="Version regressed vs base"
       fi
       ;;
 
@@ -263,14 +263,14 @@ versioning_eval() {
   fi
 
   # If both sides show no version encoding at all
-  if [[ "$VERSION_BASE_VER" == "N/A" && "$VERSION_HEAD_VER" == "N/A" ]]; then
+  if [[ "$VERSION_BASE_VER" == "Not Available" && "$VERSION_HEAD_VER" == "Not Available" ]]; then
     result="WARN"
-    append_reason "Missing version encoding"
+    append_reason "Missing versioning information"
   fi
 
   # --- Export results ---
-  VERSION_BASE_SONAME="${base_soname:-N/A}"
-  VERSION_HEAD_SONAME="${head_soname:-N/A}"
+#   VERSION_BASE_SONAME="${base_soname:-Not Available}"
+#   VERSION_HEAD_SONAME="${head_soname:-Not Available}"
   VERSION_RESULT="$result"
   VERSION_REASON="$reason"
 
