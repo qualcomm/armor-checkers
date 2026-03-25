@@ -272,7 +272,6 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   set +e
   abidiff "${abidiff_argv[@]}" "$base_path" "$head_path" >>"$out_file" 2>&1
   rc=$?
-  rc=8
   set -e
 
   func_removed=0; func_changed=0; var_removed=0; var_changed=0
@@ -299,7 +298,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   ABIDIFF_USAGE_ERROR=2
   ABIDIFF_ABI_CHANGE=4
   ABIDIFF_ABI_INCOMPATIBLE_CHANGE=8
-  
+
   has_error=$(( rc & ABIDIFF_ERROR ))
   has_usage=$(( rc & ABIDIFF_USAGE_ERROR ))
   has_change=$(( rc & ABIDIFF_ABI_CHANGE ))
@@ -396,7 +395,7 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "abi_ok=${ok}"
     echo "abi_changed=${changed_abi}"
     echo "abi_incompatible=${changed_incompat}"
-    echo "abi_errors=${errs}"    
+    echo "abi_errors=${errs}"
     echo "abi_versioning_fails=${versioning_fails}" >> "$GITHUB_OUTPUT"
     echo "abi_versioning_warnings=${versioning_warnings}" >> "$GITHUB_OUTPUT"
 
@@ -406,7 +405,7 @@ fi
 
 result="pass"
 # Fail only if we had internal errors or any incompatible changes
-if (( errs > 0 || versioning_fails > 0 )); then
+if (( errs > 0 || changed_incompat > 0 || versioning_fails > 0 )); then
   result="fail"
 fi
 
