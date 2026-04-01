@@ -29,13 +29,19 @@ mkdir -p "$reports_dir"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 
 {
-  echo "## ABI Compatibility Report"
+
+  echo "## ABI Compatibility & Versioning Report"
+  echo "> **Comparison:**"
+  echo "> Base = commit to compare against (PR Base, before changes)"
+  echo "> Head = commit being tested (PR Head, after changes)"
   echo ""
-  echo "| Binary | Result | Notes |"
-  echo "|:-------|:-------|:------|"
+
+  echo "| Binary | ABI Result | Base Version | Head Version | Versioning Result | Versioning Reason | Notes |"
+  echo "|:-------|:-----------|:------------------|:------------------|:------------------|:-----------------|:------|"
 } >> "$SUMMARY"
 
-total=0; ok=0; changed_abi=0; changed_incompat=0; errs=0
+total=0; ok=0; changed_abi=0; changed_incompat=0; errs=0; versioning_fails=0; versioning_warnings=0
+
 
 # Normalize CRLF if any
 if file "$manifest" | grep -qi 'CRLF'; then sed -i 's/\r$//' "$manifest"; fi
@@ -298,16 +304,44 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   has_change=$(( rc & ABIDIFF_ABI_CHANGE ))
   has_incompat=$(( rc & ABIDIFF_ABI_INCOMPATIBLE_CHANGE ))
 
+  abi_category="error"
+  if (( rc == 0 )); then
+    abi_category="no-diff"
+  elif (( has_incompat || summary_rc4_incompat )); then
+    abi_category="incompatible"
+  elif (( has_change )); then
+    abi_category="compatible-additive"
+  fi
+
+  source "${GITHUB_ACTION_PATH}/scripts/versioning.sh"
+   # --- Versioning evaluation for each binary ---
+  versioning_eval "$base_path" "$head_path" "$abi_category"
+  # Count failures
+  if [[ "$VERSION_RESULT" == "FAIL" ]]; then
+      versioning_fails=$((versioning_fails + 1))
+  fi
+  if [[ "$VERSION_RESULT" == "WARN" ]]; then
+    versioning_warnings=$((versioning_warnings + 1))
+  fi
+  # base_soname="$VERSION_BASE_SONAME"
+  # head_soname="$VERSION_HEAD_SONAME"
+  base_ver="$VERSION_BASE_VER"
+  head_ver="$VERSION_HEAD_VER"
+  versioning_result="$VERSION_RESULT"
+  versioning_reason="$VERSION_REASON"
+
   if (( rc == 0 )); then
     echo "No ABI differences detected." >>"$out_file"  
     ok=$((ok+1))
-    echo "| \`${name}\` | ✅&nbsp;Compatible | No ABI differences detected |" >> "$SUMMARY"
+    #echo "| \`${name}\` | ✅&nbsp;Compatible | No ABI differences detected |" >> "$SUMMARY"
+    echo "| \`${name}\` | ✅&nbsp;Compatible (no-diff) | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | No abi differences detected; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "compatible (no-diff)"
   
   elif (( has_error )); then
     errs=$((errs+1)); note="Internal error"; (( has_usage )) && note="Usage error"
     echo "::error::${note} (rc=${rc}) for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌&nbsp;Error | ${note}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    #echo "| \`${name}\` | ❌&nbsp;Error | ${note}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Error | N/A | N/A | N/A | N/A | ${note}; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   
   elif (( has_incompat || summary_rc4_incompat )); then
@@ -318,7 +352,8 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
       echo "::error:: rc=4 with removed/changed functions or variables; marking as incompatible" >>"$out_file"
       echo "Functions summary: removed=${func_removed}, changed=${func_changed}; Variables summary: removed=${var_removed}, changed=${var_changed}" >>"$out_file"
     fi
-    echo "| \`${name}\` | ❌&nbsp;Incompatible | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Incompatible  | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    #echo "| \`${name}\` | ❌&nbsp;Incompatible | check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "incompatible"
   
   elif (( has_change )); then
@@ -326,21 +361,33 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     # and NOT promoted by summary_rc4_incompat.
     changed_abi=$((changed_abi+1))
     echo "rc=4 (ABI changed) but policy accepts as compatible-abidiff for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ✅&nbsp;Compatible (abidiff-change) | detected ABI changes ${run_url} |" >> "$SUMMARY"
+    echo "| \`${name}\` | ✅&nbsp;Compatible (abidiff-change) | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | detected ABI changes; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    #echo "| \`${name}\` | ✅&nbsp;Compatible (abidiff-change) | detected ABI changes ${run_url} |" >> "$SUMMARY"
     collect_binary "$name" "compatible (abidiff-change)"
 
   else
     errs=$((errs+1))
     echo "::error::Unknown exit code ${rc} for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ❌&nbsp;Error | Unknown rc=${rc}; check artifact [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Error | N/A | N/A | N/A | N/A | Unknown rc=${rc}; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "error"
   fi
 done < "$manifest"
 
 {
   echo ""
-  echo "**Totals**: ${total} checked → ✅ ${ok} compatible(no-diff), ✅ ${changed_abi} compatible (diff-change), ❌ ${changed_incompat} incompatible, ❗ ${errs} errors"
+  echo "### Totals Summary"
+  echo ""
+  echo "| Category | Count |"
+  echo "|----------|-------|"
+  echo "| Checked binaries | ${total} |"
+  echo "| Compatible (no-diff) | ${ok} |"
+  echo "| Compatible (diff-change) | ${changed_abi} |"
+  echo "| Incompatible | ${changed_incompat} |"
+  echo "| Errors | ${errs} |"
+  echo "| Versioning failures | ${versioning_fails} |"
+  echo "| Versioning warnings | ${versioning_warnings} |"
 } >> "$SUMMARY"
+
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
@@ -349,13 +396,16 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "abi_changed=${changed_abi}"
     echo "abi_incompatible=${changed_incompat}"
     echo "abi_errors=${errs}"
+    echo "abi_versioning_fails=${versioning_fails}" >> "$GITHUB_OUTPUT"
+    echo "abi_versioning_warnings=${versioning_warnings}" >> "$GITHUB_OUTPUT"
+
   } >> "$GITHUB_OUTPUT"
 fi
 
 
 result="pass"
 # Fail only if we had internal errors or any incompatible changes
-if (( errs > 0 || changed_incompat > 0 )); then
+if (( errs > 0 || changed_incompat > 0 || versioning_fails > 0 )); then
   result="fail"
 fi
 
