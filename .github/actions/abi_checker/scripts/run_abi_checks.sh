@@ -32,8 +32,8 @@ SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 
   echo "## ABI Compatibility & Versioning Report"
   echo "> **Comparison:**"
-  echo "> Base = parent commit of the PR (before changes)"
-  echo "> Head = PR commit (after changes)"
+  echo "> Base = commit to compare against (PR Base, before changes)"
+  echo "> Head = commit being tested (PR Head, after changes)"
   echo ""
 
   echo "| Binary | ABI Result | Base Version | Head Version | Versioning Result | Versioning Reason | Notes |"
@@ -323,8 +323,8 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   if [[ "$VERSION_RESULT" == "WARN" ]]; then
     versioning_warnings=$((versioning_warnings + 1))
   fi
-  base_soname="$VERSION_BASE_SONAME"
-  head_soname="$VERSION_HEAD_SONAME"
+  # base_soname="$VERSION_BASE_SONAME"
+  # head_soname="$VERSION_HEAD_SONAME"
   base_ver="$VERSION_BASE_VER"
   head_ver="$VERSION_HEAD_VER"
   versioning_result="$VERSION_RESULT"
