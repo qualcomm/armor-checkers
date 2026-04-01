@@ -265,7 +265,7 @@ versioning_eval() {
   # If both sides show no version encoding at all
   if [[ "$VERSION_BASE_VER" == "Not Available" && "$VERSION_HEAD_VER" == "Not Available" ]]; then
     result="WARN"
-    append_reason "Missing versioning information"
+    reason="Missing versioning information"
   fi
 
   # --- Export results ---
