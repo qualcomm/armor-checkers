@@ -165,16 +165,16 @@
           fi
           echo "${ver}"
       
-      - name: Install binutils
-        if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y binutils
-          echo "Installed binutils:"
-          which readelf || echo "readelf missing"
-          which objdump || echo "objdump missing"
+      # - name: Install binutils
+      #   if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     sudo apt-get update -y
+      #     sudo apt-get install -y binutils
+      #     echo "Installed binutils:"
+      #     which readelf || echo "readelf missing"
+      #     which objdump || echo "objdump missing"
 
       - name: Run build script (Base)
         if: ${{ steps.verify-build-script.outputs.script_valid == 'true' && steps.detect-abi.outputs.has-abi-checks == 'true' }}
