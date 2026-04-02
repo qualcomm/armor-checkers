@@ -185,30 +185,29 @@ versioning_eval() {
       # If SONAME is missing on either side, do not rely on fallback for gating -> FAIL
       if (( has_soname_base == 0 || has_soname_head == 0 )); then
         result="FAIL"; reason="SONAME missing; cannot enforce Major version increase for ABI break"
-        
-      fi
-
-      # Must be Major↑ (SONAME MAJOR)
-      if (( major_bumped )); then
-        result="PASS"; reason="Major version increased as required for an incompatible ABI"
-        if (( aligned_head_for_reset )); then
-          # SemVer reset only if head has full filename triplet (we don't need M alignment here for display check)
-          if [[ "$head_m" != "0" || "$head_p" != "0" ]]; then
-            result="FAIL"
-            append_reason "SemVer: after Major version increase, Minor and Patch must be 0 (got ${head_M}.${head_m}.${head_p})"
+      else
+        # Must be Major↑ (SONAME MAJOR)
+        if (( major_bumped )); then
+          result="PASS"; reason="Major version increased as required for an incompatible ABI"
+          if (( aligned_head_for_reset )); then
+            # SemVer reset only if head has full filename triplet (we don't need M alignment here for display check)
+            if [[ "$head_m" != "0" || "$head_p" != "0" ]]; then
+              result="FAIL"
+              append_reason "SemVer: after Major version increase, Minor and Patch must be 0 (got ${head_M}.${head_m}.${head_p})"
+            fi
+          else
+            result="WARN"
+            append_reason "SemVer reset not verifiable(missing minor/patch version)"
           fi
-        else
-          result="WARN"
-          append_reason "SemVer reset not verifiable(missing minor/patch version)"
+        elif (( minor_bumped )); then
+          result="FAIL"; reason="Minor version increased, incompatible ABI requires a major version increase"
+        elif (( patch_bumped )); then
+          result="FAIL"; reason="Patch version increased, incompatible ABI requires a major version increase"
+        elif (( no_bump )); then
+          result="FAIL"; reason="Incompatible ABI requires a Major version increase"
+        elif (( regressed )); then
+          result="FAIL"; reason="Version regressed vs base"
         fi
-      elif (( minor_bumped )); then
-        result="FAIL"; reason="Minor version increased, incompatible ABI requires a major version increase"
-      elif (( patch_bumped )); then
-        result="FAIL"; reason="Patch version increased, incompatible ABI requires a major version increase"
-      elif (( no_bump )); then
-        result="FAIL"; reason="Incompatible ABI requires a Major version increase"
-      elif (( regressed )); then
-        result="FAIL"; reason="Version regressed vs base"
       fi
       ;;
 
@@ -265,7 +264,7 @@ versioning_eval() {
   # If both sides show no version encoding at all
   if [[ "$VERSION_BASE_VER" == "Not Available" && "$VERSION_HEAD_VER" == "Not Available" ]]; then
     result="WARN"
-    reason="Missing versioning information"
+    reason="Missing binary versioning"
   fi
 
   # --- Export results ---
