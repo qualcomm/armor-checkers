@@ -378,7 +378,7 @@ done < "$manifest"
   echo "### Totals Summary"
   echo ""
   echo "**Binaries checked:** **${total}**"
-  echo "**ABI Results: ** no-diff: **${ok}** | additive: **${changed_abi}** | incompatible: **${changed_incompat}** | errors: **${errs}**"
+  echo "**ABI Results:** no-diff: **${ok}** | additive: **${changed_abi}** | incompatible: **${changed_incompat}** | errors: **${errs}**"
   echo "**Versioning Results:** failures: **${versioning_fails}** | warnings: **${versioning_warnings}**"
 } >> "$SUMMARY"
 
