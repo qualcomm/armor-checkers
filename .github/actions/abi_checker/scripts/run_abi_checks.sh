@@ -377,17 +377,10 @@ done < "$manifest"
   echo ""
   echo "### Totals Summary"
   echo ""
-  echo "| Category | Count |"
-  echo "|----------|-------|"
-  echo "| Checked binaries | ${total} |"
-  echo "| Compatible (no-diff) | ${ok} |"
-  echo "| Compatible (diff-change) | ${changed_abi} |"
-  echo "| Incompatible | ${changed_incompat} |"
-  echo "| Errors | ${errs} |"
-  echo "| Versioning failures | ${versioning_fails} |"
-  echo "| Versioning warnings | ${versioning_warnings} |"
+  echo "**Binaries checked:** **${total}**"
+  echo "**ABI Results: ** no-diff: **${ok}** | additive: **${changed_abi}** | incompatible: **${changed_incompat}** | errors: **${errs}**"
+  echo "**Versioning Results:** failures: **${versioning_fails}** | warnings: **${versioning_warnings}**"
 } >> "$SUMMARY"
-
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
