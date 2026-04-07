@@ -106,7 +106,7 @@ jobs:
 
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
               HEAD_SHA="refs/pull/$PR_NUMBER/merge"
-              if ! git ls-remote origin "$HEAD_SHA" >/dev/null 2>&1; then
+              if ! git fetch origin "$HEAD_SHA" --depth=1 >/dev/null 2>&1; then
                 {
                   echo "## API and ABI Check Skipped"
                   echo
