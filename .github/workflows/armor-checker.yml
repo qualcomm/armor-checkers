@@ -36,6 +36,7 @@ jobs:
   armor-api-check:
     name: Run API Check
     needs: prepare
+    if: ${{ needs.prepare.outputs.mergeable != 'false' }}
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
       - name: Run API Compatibility Check
@@ -51,6 +52,7 @@ jobs:
   abi-check:
     name: Run ABI check
     needs: prepare
+    if: ${{ needs.prepare.outputs.mergeable != 'false' }}
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
       - name: Run ABI Compatibility Check

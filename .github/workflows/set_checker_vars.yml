@@ -105,38 +105,56 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
-              HEAD_SHA="refs/pull/$PR_NUMBER/merge"
-              # if ! git checkout "$HEAD_SHA"; then
-              #   {
-              #     echo "## API and ABI Check Skipped"
-              #     echo
-              #     echo "**Reason:** This pull request cannot be merged cleanly with the base branch."
-              #     echo
-              #     echo "GitHub could not create a merge commit (\`refs/pull/*/merge\`), so API and ABI analysis cannot be performed."
-              #     echo
-              #     echo "**Action required:**"
-              #     echo "- Rebase your branch onto the latest base branch, or"
-              #     echo "- Resolve merge conflicts"
-              #     echo
-              #     echo "Push the updated commits to re-run the API and ABI checks."
-              #   } >> "$GITHUB_STEP_SUMMARY"
-              #   echo "PR cannot be merged cleanly. Please rebase or resolve conflicts. Hence API and ABI checks skipped."
-              #   exit 0
-              # else
               echo "base_sha=$PR_BASE_SHA" >> "$GITHUB_OUTPUT"
+
               # NOTE:
               # For pull_request events, ABI analysis must compare:
               # base SHA → virtual merge (refs/pull/*/merge)
               # Never compare base SHA directly with head SHA.
-              echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              
+              echo "head_sha=refs/pull/$PR_NUMBER/merge" >> "$GITHUB_OUTPUT"
               echo "branch_name=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
-              # fi
+
           elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "base_sha=$DISPATCH_BASE_SHA" >> "$GITHUB_OUTPUT"
             echo "head_sha=$DISPATCH_HEAD_SHA" >> "$GITHUB_OUTPUT"
             echo "branch_name=$DISPATCH_BRANCH" >> "$GITHUB_OUTPUT"
+
           else
             echo "base_sha=$PUSH_BEFORE" >> "$GITHUB_OUTPUT"
             echo "head_sha=$PUSH_AFTER" >> "$GITHUB_OUTPUT"
             echo "branch_name=$REF_NAME" >> "$GITHUB_OUTPUT"
           fi
+
+      #Mergeability check — PRs only
+      - name: Checkout PR virtual merge commit
+        id: checkout_merge
+        if: ${{ steps.vars.outputs.event_name == 'pull_request' || steps.vars.outputs.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.head_sha }}   # refs/pull/<pr>/merge
+          fetch-depth: 0
+        continue-on-error: true
+
+      - name: Set mergeable output
+        id: mergeable
+        shell: bash
+        run: |
+          if [ "${{ steps.checkout_merge.outcome }}" = "success" ]; then
+            echo "mergeable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mergeable=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## API and ABI Check Skipped"
+              echo
+              echo "**Reason:** This pull request cannot be merged cleanly with the base branch."
+              echo
+              echo "**Action required:**"
+              echo "- Rebase your branch onto the latest base branch, or"
+              echo "- Resolve merge conflicts"
+              echo
+              echo "Push the updated commits to re-run the API and ABI checks."
+              } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "PR cannot be merged cleanly. Please rebase or resolve conflicts. Hence API and ABI checks skipped."
+          exit 0
