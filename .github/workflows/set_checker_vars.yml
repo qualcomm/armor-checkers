@@ -105,6 +105,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
+              HEAD_SHA="refs/pull/$PR_NUMBER/merge"
               if ! git ls-remote origin "$HEAD_SHA" >/dev/null 2>&1; then
                 {
                   echo "## API and ABI Check Skipped"
@@ -127,7 +128,7 @@ jobs:
                 # For pull_request events, ABI analysis must compare:
                 # base SHA → virtual merge (refs/pull/*/merge)
                 # Never compare base SHA directly with head SHA.
-                echo "head_sha=refs/pull/$PR_NUMBER/merge" >> "$GITHUB_OUTPUT"
+                echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
                 echo "branch_name=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
               fi
           elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
