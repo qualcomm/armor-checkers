@@ -64,6 +64,8 @@
       - name: Detect code changes
         id: cf
         shell: bash
+        env:
+          BASE_SHA:   ${{ inputs.base-sha }}
         run: |
           set -euo pipefail
           echo "Diffing base vs head trees…"
