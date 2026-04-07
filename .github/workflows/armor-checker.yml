@@ -53,23 +53,30 @@ jobs:
     needs: prepare
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
-      - name: Checkout Repo
+      - name: Checkout base commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          path: base
           fetch-depth: 0
-
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}   # refs/pull/<pr>/merge
+          path: head
+          fetch-depth: 0
       - name: Detect code changes
         id: cf
         shell: bash
         run: |
           set -euo pipefail
 
-          BASE="${{ needs.prepare.outputs.base_sha }}"
-          HEAD="${{ needs.prepare.outputs.head_sha }}"
 
-          # List changed files between base and head
-          changed_files="$(git diff --name-only "$BASE" "$HEAD" || true)"
-
+          echo "Diffing base vs merge trees…"
+          changed_files="$(git diff --no-index \
+            "$GITHUB_WORKSPACE/base" \
+            "$GITHUB_WORKSPACE/head" \
+            --name-only || true)"
           echo "Changed files:"
           echo "$changed_files" || true
 

@@ -135,8 +135,7 @@ runs:
       run: |
         set -e
         # Diff directly using the two trees
-        git --git-dir="$GITHUB_WORKSPACE/head/.git" --work-tree="$GITHUB_WORKSPACE/head" \
-          diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$GITHUB_WORKSPACE/changed_files.txt" || true
+        git -C "$GITHUB_WORKSPACE/head" diff --name-only "$BASE_SHA" > "$GITHUB_WORKSPACE/changed_files.txt" || true
 
         echo "Changed files:"
         cat "$GITHUB_WORKSPACE/changed_files.txt" || true
