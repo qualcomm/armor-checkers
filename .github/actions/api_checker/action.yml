@@ -294,7 +294,7 @@ runs:
       if: steps.intersection.outputs.has-intersection == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: armor-output-${{ inputs.head-sha }}
+        name: apichecker-reports
         path: ${{ steps.run-armor.outputs.out-root }}
         if-no-files-found: warn
 

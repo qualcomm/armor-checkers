@@ -34,11 +34,11 @@ jobs:
       armor-checker-options: ${{ inputs.armor-checker-options }}
 
   armor-api-check:
-    name: Run API Check
+    name: Run API Compatibility Check
     needs: prepare
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
-      - name: Run ARMOR Tool
+      - name: Run API check
         uses: qualcomm/armor-checkers/.github/actions/api_checker@refs_update
         with:
           event-name:  ${{ needs.prepare.outputs.event_name }}
@@ -49,58 +49,11 @@ jobs:
           branch-name: ${{ needs.prepare.outputs.branch_name }}
 
   abi-check:
-    name: Run ABI Check
+    name: Run ABI Compatibility Check
     needs: prepare
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
-      - name: Checkout base commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.base_sha }}
-          path: base
-          fetch-depth: 0
-      - name: Checkout PR merge commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.head_sha }}   # refs/pull/<pr>/merge
-          path: head
-          fetch-depth: 0
-      - name: Detect code changes
-        id: cf
-        shell: bash
-        run: |
-          set -euo pipefail
-
-
-          echo "Diffing base vs merge trees…"
-          changed_files="$(git diff --no-index \
-            "$GITHUB_WORKSPACE/base" \
-            "$GITHUB_WORKSPACE/head" \
-            --name-only || true)"
-          echo "Changed files:"
-          echo "$changed_files" || true
-
-          # Filter to code extensions
-          code_files="$(echo "$changed_files" | grep -E '\.(h|hpp|c|cpp)$' || true)"
-
-          if [[ -n "${code_files}" ]]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            echo "Matched code files:"
-            echo "$code_files"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-            echo "No matching code files found."
-          fi
-
-      - name: Stop early if no code changes
-        if: ${{ steps.cf.outputs.code != 'true' }}
-        shell: bash
-        run: |
-          echo "No *.h/*.hpp/*.c/*.cpp changes detected; skipping ABI check."
-          echo "No code file changes detected between base and head. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
-          exit 0
-
-      - name: Run ABI checks
+      - name: Run ABI check
         if: ${{ steps.cf.outputs.code == 'true' }}
         uses: qualcomm/armor-checkers/.github/actions/abi_checker@refs_update
         with:
