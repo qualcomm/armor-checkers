@@ -34,11 +34,11 @@ jobs:
       armor-checker-options: ${{ inputs.armor-checker-options }}
 
   armor-api-check:
-    name: Run API Compatibility Check
+    name: Run API Check
     needs: prepare
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
-      - name: Run API check
+      - name: Run API Compatibility Check
         uses: qualcomm/armor-checkers/.github/actions/api_checker@refs_update
         with:
           event-name:  ${{ needs.prepare.outputs.event_name }}
@@ -49,12 +49,11 @@ jobs:
           branch-name: ${{ needs.prepare.outputs.branch_name }}
 
   abi-check:
-    name: Run ABI Compatibility Check
+    name: Run ABI check
     needs: prepare
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
-      - name: Run ABI check
-        if: ${{ steps.cf.outputs.code == 'true' }}
+      - name: Run ABI Compatibility Check
         uses: qualcomm/armor-checkers/.github/actions/abi_checker@refs_update
         with:
           event-name:   ${{ needs.prepare.outputs.event_name }}
