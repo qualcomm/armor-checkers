@@ -61,7 +61,40 @@
           echo "github-base path  : $GITHUB_WORKSPACE/base"
           echo "github-head path  : $GITHUB_WORKSPACE/head"
 
+      - name: Detect code changes
+        id: cf
+        shell: bash
+        env:
+          BASE_SHA:   ${{ inputs.base-sha }}
+        run: |
+          set -euo pipefail
+          echo "Diffing base vs head trees…"
+          changed_files="$(git -C "$GITHUB_WORKSPACE/head" diff --name-only "$BASE_SHA"  || true)"
+          echo "Changed files:"
+          echo "$changed_files" || true
+
+          # Filter to code extensions
+          code_files="$(echo "$changed_files" | grep -E '\.(h|hpp|c|cpp)$' || true)"
+
+          if [[ -n "${code_files}" ]]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "Matched code files:"
+            echo "$code_files"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "No matching code files found."
+          fi
+
+      - name: Stop early if no code changes
+        if: ${{ steps.cf.outputs.code != 'true' }}
+        shell: bash
+        run: |
+          echo "No *.h/*.hpp/*.c/*.cpp changes detected; skipping ABI check."
+          echo "Source code file changes are not detected. Skipping ABI compatibility checks." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       - name: Install yq
+        if: ${{ steps.cf.outputs.code == 'true' }}
         id: install-yq
         shell: bash
         run: |
@@ -108,6 +141,7 @@
           fi
 
       - name: Verify build script exists
+        if: ${{ steps.cf.outputs.code == 'true' }}
         id: verify-build-script
         shell: bash
         env:
