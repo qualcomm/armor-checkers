@@ -50,19 +50,20 @@ repo_root_from() {
 }
 
 dump_exported_symbols() {
-  local label="$1"   # Base or Head
+  local label="$1"
   local bin="$2"
 
-  echo "### Exported symbols (${label})"
-  echo "Command: nm -D $bin"
-  echo
+  echo "### Exported symbols (${label})" >&2
+  echo "Command: nm -D $bin" >&2
+  echo >&2
 
   if nm -D "$bin" >/dev/null 2>&1; then
     nm -D "$bin" | awk '{ print $3 }' | sort
   else
-    echo "nm -D failed for $bin"
+    echo "nm -D failed for $bin" >&2
   fi
-  echo
+
+  echo >&2
 }
 
 meta_json="${reports_dir}/abi_metadata.json"
