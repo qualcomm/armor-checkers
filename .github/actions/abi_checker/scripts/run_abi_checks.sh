@@ -49,6 +49,22 @@ repo_root_from() {
   esac
 }
 
+dump_exported_symbols() {
+  local label="$1"   # Base or Head
+  local bin="$2"
+
+  echo "### Exported symbols (${label})"
+  echo "Command: nm -D $bin"
+  echo
+
+  if nm -D "$bin" >/dev/null 2>&1; then
+    nm -D "$bin" | awk '{ print $3 }' | sort
+  else
+    echo "nm -D failed for $bin"
+  fi
+  echo
+}
+
 meta_json="${reports_dir}/abi_metadata.json"
 
 # Collect rows as: "binary <TAB> compatibility"
@@ -261,6 +277,10 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     printf 'abidiff'
     printf ' %q' "${abidiff_argv[@]}" "$base_path" "$head_path"
     printf '\n\n'
+    echo "## Binary symbol visibility check (pre-abidiff)"
+    echo
+    dump_exported_symbols "Base" "$base_path"
+    dump_exported_symbols "Head" "$head_path"
   } >>"$out_file"
 
   set +e

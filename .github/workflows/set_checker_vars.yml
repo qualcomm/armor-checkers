@@ -156,5 +156,3 @@ jobs:
               echo "Push the updated commits to re-run the API and ABI checks."
               } >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "PR cannot be merged cleanly. Please rebase or resolve conflicts. Hence API and ABI checks skipped."
-          exit 0
