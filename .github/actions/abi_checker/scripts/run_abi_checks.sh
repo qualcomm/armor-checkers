@@ -58,7 +58,7 @@ dump_exported_symbols() {
   echo >&2
 
   if nm -D "$bin" >/dev/null 2>&1; then
-    nm -D "$bin" | awk '{ print $3 }' | sort
+    nm -D "$bin" | awk '{ print $3 }' | sort >&2
   else
     echo "nm -D failed for $bin" >&2
   fi
