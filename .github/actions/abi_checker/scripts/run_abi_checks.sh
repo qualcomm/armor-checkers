@@ -61,8 +61,13 @@ meta_json="${reports_dir}/abi_metadata.json"
 declare -a META_ROWS=()
 
 collect_binary() {
-  local bin="$1" comp="$2"
-  META_ROWS+=("$bin"$'\t'"$comp")
+  local bin="$1"
+  local comp="$2"
+  local vres="$3"
+  local vreason="$4"
+  META_ROWS+=(
+    "$bin"$'\t'"$comp"$'\t'"$vres"$'\t'"$vreason"
+  )
 }
 
 while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
@@ -95,7 +100,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     fi
     echo "| \`${name}\` | ❌ Error | ${note} |" >> "$SUMMARY"
     echo "::error::${note} for ${name}" >> "$out_file"
-    collect_binary "$name" "error"
+    collect_binary "$name" "error" "N/A" "N/A"
     continue
   fi
 
@@ -334,13 +339,14 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     echo "No ABI differences detected." >>"$out_file"  
     ok=$((ok+1))
     echo "| \`${name}\` | ✅&nbsp;Compatible (No ABI Differences) | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | ABI differences are not detected; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
-    collect_binary "$name" "compatible (no-diff)"
+    collect_binary "$name" "compatible (no-diff)" "$versioning_result" "$versioning_reason"
+
   
   elif (( has_error )); then
     errs=$((errs+1)); note="Internal error"; (( has_usage )) && note="Usage error"
     echo "::error::${note} (rc=${rc}) for ${name}" >>"$out_file"
     echo "| \`${name}\` | ❌&nbsp;Error | N/A | N/A | N/A | N/A | ${note}; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
-    collect_binary "$name" "error"
+    collect_binary "$name" "error" "N/A" "N/A"
   
   elif (( has_incompat || summary_rc4_incompat )); then
     changed_incompat=$((changed_incompat+1))
@@ -351,7 +357,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
       echo "Functions summary: removed=${func_removed}, changed=${func_changed}; Variables summary: removed=${var_removed}, changed=${var_changed}" >>"$out_file"
     fi
     echo "| \`${name}\` | ❌&nbsp;Incompatible ABI Change  | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
-    collect_binary "$name" "incompatible"
+    collect_binary "$name" "incompatible" "$versioning_result" "$versioning_reason"
   
   elif (( has_change )); then
     # We reach here only if it's NOT an explicit incompatible (no bit 8)
@@ -359,13 +365,13 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     changed_abi=$((changed_abi+1))
     echo "rc=4 (ABI changed) but policy accepts as compatible-abidiff for ${name}" >>"$out_file"
     echo "| \`${name}\` | ✅&nbsp;Compatible Additive ABI Change | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | detected ABI changes; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
-    collect_binary "$name" "compatible (abidiff-change)"
+    collect_binary "$name" "compatible (abidiff-change)" "$versioning_result" "$versioning_reason"
 
   else
     errs=$((errs+1))
     echo "::error::Unknown exit code ${rc} for ${name}" >>"$out_file"
     echo "| \`${name}\` | ❌&nbsp;Error | N/A | N/A | N/A | N/A | Unknown rc=${rc}; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
-    collect_binary "$name" "error"
+    collect_binary "$name" "error" "N/A" "N/A"
   fi
 done < "$manifest"
 
@@ -412,9 +418,14 @@ if [[ -f "$meta_json" ]]; then
       {
         bin=$1
         comp=$2
+        vres=$3
+        vreason=$4
         gsub(/"/, "\\\"", bin)
         gsub(/"/, "\\\"", comp)
-        printf("{\"binary\":\"%s\",\"compatibility\":\"%s\"}", bin, comp)
+        gsub(/"/, "\\\"", vres)
+        gsub(/"/, "\\\"", vreason)
+        printf("{\"binary\":\"%s\",\"compatibility\":\"%s\",\"versioning_result\":\"%s\",\"versioning_reason\":\"%s\"}",
+              bin, comp, vres, vreason)
       }
       END { print "]" }
     '
