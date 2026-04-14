@@ -65,18 +65,26 @@
         id: cf
         shell: bash
         env:
-          BASE_SHA:   ${{ inputs.base-sha }}
+          BASE_SHA: ${{ inputs.base-sha }}
         run: |
           set -euo pipefail
           echo "Diffing base vs head trees…"
-          changed_files="$(git -C "$GITHUB_WORKSPACE/head" diff --name-only "$BASE_SHA"  || true)"
+
+          changed_files="$(git -C "$GITHUB_WORKSPACE/head" diff --name-only "$BASE_SHA" || true)"
           echo "Changed files:"
           echo "$changed_files" || true
+
+          # Expose changed files as output (multiline-safe)
+          {
+            echo "changed_files<<EOF"
+            echo "$changed_files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           # Filter to code extensions
           code_files="$(echo "$changed_files" | grep -E '\.(h|hpp|c|cpp)$' || true)"
 
-          if [[ -n "${code_files}" ]]; then
+          if [[ -n "$code_files" ]]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "Matched code files:"
             echo "$code_files"
@@ -202,6 +210,17 @@
           fi
           echo "${ver}"
 
+      - name: Install binutils
+        if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y binutils
+          echo "Installed binutils:"
+          which readelf || echo "readelf missing"
+          which objdump || echo "objdump missing"
+
       - name: Run build script (Base)
         env:
           BASE_DIR: ${{ github.workspace }}/base
@@ -307,16 +326,22 @@
           BRANCH_NAME:  ${{ inputs.branch-name }}
           HEAD_SHA:     ${{ inputs.head-sha }}
           BASE_SHA:     ${{ inputs.base-sha }}
+          CHANGED_FILES: ${{ steps.cf.outputs.changed_files }}
         run: |
           set -euo pipefail
-
           mkdir -p "$REPORTS_DIR"
 
           PROJECT_URL="$SERVER_URL/$REPO"
           WORKFLOW_URL="$SERVER_URL/$REPO/actions/runs/$RUN_ID"
           ARTIFACTS_URL="$WORKFLOW_URL#artifacts"
-
           TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          # Convert newline-separated files to JSON array
+          if [[ -n "$CHANGED_FILES" ]]; then
+            CHANGED_FILES_JSON=$(printf '%s\n' "$CHANGED_FILES" | jq -R . | jq -s .)
+          else
+            CHANGED_FILES_JSON="[]"
+          fi
 
           cat > "$REPORTS_DIR/abi_metadata.json" <<EOF
           {
@@ -328,6 +353,7 @@
             "head_sha": "$HEAD_SHA",
             "base_sha": "$BASE_SHA",
             "artifacts": "$ARTIFACTS_URL",
+            "changed_files": $CHANGED_FILES_JSON,
             "binaries": []
           }
           EOF
