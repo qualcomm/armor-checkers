@@ -245,7 +245,7 @@ versioning_eval() {
       elif (( patch_bumped )); then
         result="PASS"; reason="Increasing only the patch number while there is no ABI change seems reasonable"
       elif (( no_bump )); then
-        result="PASS"; reason="ABI unchange, version unchanged"
+        result="PASS"; reason="No ABI differences, version unchanged"
       elif (( regressed )); then
         result="FAIL"; reason="Version regressed vs base"
       fi

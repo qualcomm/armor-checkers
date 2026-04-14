@@ -333,7 +333,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
   if (( rc == 0 )); then
     echo "No ABI differences detected." >>"$out_file"  
     ok=$((ok+1))
-    echo "| \`${name}\` | ✅&nbsp;Compatible (no-diff) | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | ABI differences are not detected; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ✅&nbsp;Compatible (No ABI Differences) | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | ABI differences are not detected; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "compatible (no-diff)"
   
   elif (( has_error )); then
@@ -350,7 +350,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
       echo "::error:: rc=4 with removed/changed functions or variables; marking as incompatible" >>"$out_file"
       echo "Functions summary: removed=${func_removed}, changed=${func_changed}; Variables summary: removed=${var_removed}, changed=${var_changed}" >>"$out_file"
     fi
-    echo "| \`${name}\` | ❌&nbsp;Incompatible  | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ❌&nbsp;Incompatible ABI Change  | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "incompatible"
   
   elif (( has_change )); then
@@ -358,7 +358,7 @@ while IFS=$'\t' read -r name head_path base_path sup_csv extra_csv hdr_csv; do
     # and NOT promoted by summary_rc4_incompat.
     changed_abi=$((changed_abi+1))
     echo "rc=4 (ABI changed) but policy accepts as compatible-abidiff for ${name}" >>"$out_file"
-    echo "| \`${name}\` | ✅&nbsp;Compatible (abidiff-change) | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | detected ABI changes; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
+    echo "| \`${name}\` | ✅&nbsp;Compatible Additive ABI Change | ${base_ver} | ${head_ver} | ${versioning_result} | ${versioning_reason} | detected ABI changes; view log [\`${report_display}\`](${run_url}) |" >> "$SUMMARY"
     collect_binary "$name" "compatible (abidiff-change)"
 
   else
@@ -374,7 +374,7 @@ done < "$manifest"
   echo "### Totals Summary"
   echo ""
   echo "**Binaries checked:** **${total}**"
-  echo "**ABI Results:** no-diff: **${ok}** | additive: **${changed_abi}** | incompatible: **${changed_incompat}** | errors: **${errs}**"
+  echo "**ABI Results:** compatible (no-diff): **${ok}** | compatible (additive): **${changed_abi}** | incompatible: **${changed_incompat}** | errors: **${errs}**"
   echo "**Versioning Results:** failures: **${versioning_fails}** | warnings: **${versioning_warnings}**"
 } >> "$SUMMARY"
 
