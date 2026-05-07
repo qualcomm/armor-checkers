@@ -322,31 +322,43 @@ runs:
         RUN_ID: ${{ github.run_id }}
       run: |
         set -e
+    
         FOLDER="$OUT_ROOT"
-        BUCKET="s3://qli-prd-armor-gh-artifacts"
+        BUCKET="qli-prd-armor-gh-artifacts"
+    
         YYYY="$(date -u +'%Y')"
         MM="$(date -u +'%m')"
         DD="$(date -u +'%d')"
         HH="$(date -u +'%H')"
         HOST="$(printf '%s' "$SERVER_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
+    
         PREFIX="${YYYY}/${MM}/${DD}/${HH}/${HOST}/${REPOSITORY}/${GITHUB_REF_NAME}/${RUN_ID}/files"
-        echo "Uploading artifacts to Destination: ${BUCKET}/${PREFIX}"
-        set +e
+    
+        echo "Uploading artifacts to Destination: s3://${BUCKET}/${PREFIX}"
+    
         ERR_FILE="$(mktemp)"
-        aws s3 cp "$FOLDER" "${BUCKET}/${PREFIX}" \
-          --recursive \
-          --content-type "application/octet-stream" \
-          --only-show-errors \
-          2> "$ERR_FILE"
-        rc=$?
-        set -e
-        if [[ ${rc} -eq 0 ]]; then
+        rc=0
+    
+        # Loop through all files and upload individually
+        while IFS= read -r -d '' file; do
+          key="${PREFIX}/${file#$FOLDER/}"
+    
+          aws s3api put-object \
+            --bucket "$BUCKET" \
+            --key "$key" \
+            --body "$file" \
+            --content-type "application/octet-stream" \
+            >/dev/null 2>>"$ERR_FILE" || rc=1
+        done < <(find "$FOLDER" -type f -print0)
+    
+        if [[ $rc -eq 0 ]]; then
           echo "S3 upload succeeded."
         else
-          reason="$(cat "$ERR_FILE")"
-          echo "::error :: S3 upload FAILED (rc=${rc})."
-          echo "::error :: Reason: ${reason:-No error output captured}"
+          echo "::error :: S3 upload FAILED."
+          echo "::error :: Reason: $(cat "$ERR_FILE")"
+          exit 1
         fi
+    
         rm -f "$ERR_FILE"
 
     - name: Prepare ARMOR summary
