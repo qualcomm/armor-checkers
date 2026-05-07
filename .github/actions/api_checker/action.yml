@@ -324,7 +324,7 @@ runs:
         set -e
     
         FOLDER="$OUT_ROOT"
-        BUCKET="qli-prd-armor-gh-artifacts"
+        BUCKET="qli-stg-armor-gh-artifacts"
     
         YYYY="$(date -u +'%Y')"
         MM="$(date -u +'%m')"
