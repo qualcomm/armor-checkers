@@ -56,7 +56,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_json) }}
     steps:
       - name: Run ABI Compatibility Check
-        uses: qualcomm/armor-checkers/.github/actions/abi_checker@v1
+        uses: qualcomm/armor-checkers/.github/actions/abi_checker@s3_upload
         with:
           event-name:   ${{ needs.prepare.outputs.event_name }}
           head-sha:     ${{ needs.prepare.outputs.head_sha }}
