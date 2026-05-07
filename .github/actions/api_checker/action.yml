@@ -348,6 +348,7 @@ runs:
             --key "$key" \
             --body "$file" \
             --content-type "application/octet-stream" \
+            --tagging "retention=45d" \
             >/dev/null 2>>"$ERR_FILE" || rc=1
         done < <(find "$FOLDER" -type f -print0)
     
