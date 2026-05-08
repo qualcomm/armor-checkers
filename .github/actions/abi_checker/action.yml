@@ -428,10 +428,13 @@
             tries=$((tries+1))
             set +e
             ERR_FILE="$(mktemp)"
-            aws s3 cp "${META}" "${BUCKET}/${PREFIX}/abi_metadata.json" \
+            aws s3api put-object \
+              --bucket "${BUCKET#s3://}" \
+              --key "${PREFIX}/abi_metadata.json" \
+              --body "${META}" \
               --content-type "application/json" \
-              --only-show-errors \
-              2> "${ERR_FILE}"
+              --tagging "retention=45d" \
+              >/dev/null 2>"${ERR_FILE}"
             rc=$?
             set -e
 
