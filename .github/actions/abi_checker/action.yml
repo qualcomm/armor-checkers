@@ -434,6 +434,7 @@
               --key "${PREFIX}/abi_metadata.json" \
               --body "${META}" \
               --content-type "application/json" \
+              --tagging "retention=45d" \
               >/dev/null 2>"${ERR_FILE}"
 
             rc=$?
