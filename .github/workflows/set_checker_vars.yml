@@ -130,7 +130,7 @@ jobs:
       - name: Checkout PR virtual merge commit
         id: checkout_merge
         if: ${{ steps.vars.outputs.event_name == 'pull_request' || steps.vars.outputs.event_name == 'pull_request_target' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.vars.outputs.head_sha }}   # refs/pull/<pr>/merge
           fetch-depth: 0
