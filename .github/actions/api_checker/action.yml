@@ -39,21 +39,21 @@ runs:
   using: "composite"
   steps:
     - name: Checkout base commit
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       with:
         ref: ${{ inputs.base-sha }}
         path: base
         fetch-depth: 0
 
     - name: Checkout head commit
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       with:
         ref: ${{ inputs.head-sha }}
         path: head
         fetch-depth: 0
 
     - name: Checkout ARMOR tool repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       with:
         repository: qualcomm/armor
         ref: ${{ inputs.armor-ref }}
@@ -292,7 +292,7 @@ runs:
 
     - name: Upload all armor outputs (artifact)
       if: steps.intersection.outputs.has-intersection == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: apichecker-reports
         path: ${{ steps.run-armor.outputs.out-root }}
