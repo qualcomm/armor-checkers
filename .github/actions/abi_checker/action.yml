@@ -35,14 +35,14 @@
     using: "composite"
     steps:
       - name: Checkout base commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.base-sha }}
           path: base
           fetch-depth: 0
 
       - name: Checkout head commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.head-sha }}
           path: head
@@ -295,6 +295,8 @@
         if: ${{ steps.detect-abi.outputs.has-abi-checks == 'true' }}
         id: abi-check
         shell: bash
+        env:
+          HAS_ABI_CHECKS: ${{ steps.detect-abi.outputs.has-abi-checks }}
         run: |
           set -euo pipefail
           echo "abi-ready=false" >> "$GITHUB_OUTPUT"
@@ -302,7 +304,7 @@
 
           if [[ ! -s "$FILE" ]]; then
             echo "abi-ready=false" >> "$GITHUB_OUTPUT"
-            if [[ "${{ steps.detect-abi.outputs.has-abi-checks }}" == "true" ]]; then
+            if [[ "$HAS_ABI_CHECKS" == "true" ]]; then
                 echo "abi_checks section exists in config.yml but resolved to **0 binaries**. Skipping ABI checks." >> "$GITHUB_STEP_SUMMARY"
             fi
             exit 0
@@ -373,7 +375,7 @@
       
       - name: Upload abidiff reports
         if: ${{ steps.run-abi.outputs.abi_result != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: abichecker-reports
           path: ${{ github.workspace }}/abichecker_reports
@@ -463,17 +465,18 @@
       - name: ABI check result
         if: ${{ steps.run-abi.outputs.abi_result != '' }}
         shell: bash
+        env:
+          STATUS:       ${{ steps.run-abi.outputs.abi_result }}
+          OK:           ${{ steps.run-abi.outputs.abi_ok || 0 }}
+          CHANGED:      ${{ steps.run-abi.outputs.abi_changed || 0 }}
+          INCOMPATIBLE: ${{ steps.run-abi.outputs.abi_incompatible || 0 }}
+          ERRORS:       ${{ steps.run-abi.outputs.abi_errors || 0 }}
         run: |
           set -euo pipefail
-          status="${{ steps.run-abi.outputs.abi_result }}"
-          ok="${{ steps.run-abi.outputs.abi_ok || 0 }}"
-          changed="${{ steps.run-abi.outputs.abi_changed || 0 }}"
-          incompatible="${{ steps.run-abi.outputs.abi_incompatible || 0 }}"
-          errors="${{ steps.run-abi.outputs.abi_errors || 0 }}"
 
-          if [[ "$status" == "fail" ]]; then
-            echo "ABI check FAILED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
+          if [[ "$STATUS" == "fail" ]]; then
+            echo "ABI check FAILED (compatible=${OK}, ABI changed=${CHANGED}, incompatible=${INCOMPATIBLE}, errors=${ERRORS})"
             exit 1
           else
-            echo "ABI check PASSED (compatible=${ok}, ABI changed=${changed}, incompatible=${incompatible}, errors=${errors})"
+            echo "ABI check PASSED (compatible=${OK}, ABI changed=${CHANGED}, incompatible=${INCOMPATIBLE}, errors=${ERRORS})"
           fi
